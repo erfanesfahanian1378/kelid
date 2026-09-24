@@ -1,0 +1,13 @@
+excluded:
+  - .build
+  - Packages/KelidKit/.build
+  - Tools/klm/.build
+  - Tools/data-pipeline
+  - DerivedData
+
+opt_in_rules:
+  - force_unwrapping
+
+line_length:
+  warning: 140
+  error: 200

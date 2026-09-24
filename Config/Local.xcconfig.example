@@ -1,0 +1,12 @@
+// Copy this file to Local.xcconfig (gitignored) and fill in your own values.
+//
+// KELID_BUNDLE_PREFIX: use something like com.yourname. This becomes the
+// prefix for both the app (<prefix>.kelid) and the keyboard extension
+// (<prefix>.kelid.keyboard), and for the App Group (group.<prefix>.kelid).
+//
+// KELID_TEAM_ID: your Apple Developer Team ID. For a free account, this is
+// the "Personal Team" ID shown in Xcode -> Settings -> Accounts -> your
+// Apple ID -> the team listed under it.
+
+KELID_BUNDLE_PREFIX = com.yourname
+KELID_TEAM_ID = XXXXXXXXXX

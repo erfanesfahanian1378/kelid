@@ -1,0 +1,9 @@
+*.xcodeproj
+DerivedData/
+.build/
+.swiftpm/
+Config/Local.xcconfig
+Tools/data-pipeline/data/
+Tools/data-pipeline/.venv/
+*.xcuserstate
+.DS_Store

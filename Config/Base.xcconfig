@@ -1,0 +1,10 @@
+// Shared build settings for all configurations (Debug and Release).
+// Personal, machine-specific values (real bundle prefix, Team ID) live in
+// Local.xcconfig, which is gitignored. Copy Config/Local.xcconfig.example to
+// Config/Local.xcconfig and fill in your values before building.
+
+KELID_BUNDLE_PREFIX = com.example
+KELID_APP_GROUP = group.$(KELID_BUNDLE_PREFIX).kelid
+KELID_TEAM_ID =
+
+#include? "Local.xcconfig"

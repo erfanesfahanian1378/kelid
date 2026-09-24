@@ -1,0 +1,76 @@
+name: Kelid
+options:
+  bundleIdPrefix: com.example            # real IDs come from Config/*.xcconfig
+  deploymentTarget: { iOS: "17.0" }
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: $(KELID_TEAM_ID)
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1,2"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+packages:
+  KelidKit: { path: Packages/KelidKit }
+targets:
+  Kelid:
+    type: application
+    platform: iOS
+    sources: [App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(KELID_BUNDLE_PREFIX).kelid
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Kelid
+        KelidAppGroupID: $(KELID_APP_GROUP)
+        UILaunchScreen: {}
+    entitlements:
+      path: App/Kelid.entitlements
+      properties:
+        com.apple.security.application-groups: [$(KELID_APP_GROUP)]
+    dependencies:
+      - target: KelidKeyboard
+      - { package: KelidKit, product: KeyboardUI }
+      - { package: KelidKit, product: KelidStorage }
+      - { package: KelidKit, product: KelidCore }
+  KelidKeyboard:
+    type: app-extension
+    platform: iOS
+    sources: [Keyboard]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(KELID_BUNDLE_PREFIX).kelid.keyboard
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        APPLICATION_EXTENSION_API_ONLY: YES
+    info:
+      path: Keyboard/Info.plist
+      properties:
+        CFBundleDisplayName: Kelid
+        KelidAppGroupID: $(KELID_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: true        # we ship English; ASCII-only fields force the English layout
+            PrefersRightToLeft: true    # Persian is primary; verify effect, record in Decision log
+            PrimaryLanguage: fa-IR      # changed at runtime via primaryLanguage when switching to English
+            RequestsOpenAccess: true
+    entitlements:
+      path: Keyboard/KelidKeyboard.entitlements
+      properties:
+        com.apple.security.application-groups: [$(KELID_APP_GROUP)]
+    dependencies:
+      - { package: KelidKit, product: KeyboardUI }
+      - { package: KelidKit, product: KelidCore }
+schemes:
+  Kelid:
+    build: { targets: { Kelid: all, KelidKeyboard: all } }
+  KelidKeyboard:
+    build: { targets: { KelidKeyboard: all, Kelid: all } }
+    run: { askForAppToLaunch: true }
