@@ -3,7 +3,7 @@
 ## Status
 | Phase | Title | Status | Date | Notes |
 |---|---|---|---|---|
-| 0 | Project bootstrap | 🟡 in progress — awaiting your on-device manual test | 2026-09-25 | See checklist below |
+| 0 | Project bootstrap | 🟡 in progress — Simulator fully verified, awaiting your physical-iPhone manual test | 2026-09-25 | See checklist below |
 | 1 | Foundation | ☐ | | |
 | 2 | Layout engine and layouts | ☐ | | |
 | 3 | Typing surface and input engine | ☐ | | |
@@ -19,7 +19,7 @@
 | 13 | Hardening and release | ☐ | | |
 
 ## Current phase checklist (Phase 0 acceptance criteria)
-- [x] `make gen && make build && make test && make lint` succeed from a fresh clone (after creating `Local.xcconfig`). — verified with `make clean gen build test-mac lint`; **`make test-ios` could not be run in this environment** (no Simulator runtimes installed at all — `xcrun simctl list devices` is empty). Run `make test SIM="platform=iOS Simulator,name=<name>"` yourself once you've downloaded a Simulator runtime (Xcode → Settings → Platforms), using a name from `xcrun simctl list devices available`.
+- [x] `make gen && make build && make test && make lint` succeed from a fresh clone (after creating `Local.xcconfig`). — fully verified, including `make test-ios`: `xcodebuild -downloadPlatform iOS` was used to install the iOS 27.0 Simulator runtime (this Mac had Xcode but zero Simulator runtimes), a device was created, and `make test` (test-mac + test-ios) passed end-to-end — **TEST SUCCEEDED**, 15/15 tests on `arm64-apple-ios17.0-simulator`.
 - [ ] On the Simulator **and** your iPhone: the app installs, and *Kelid* appears under Settings → General → Keyboard → Keyboards → Add New Keyboard. — **not yet verified on-device; this is your manual test, see below.**
 - [ ] In Notes: switching to Kelid works, the buttons insert "سلام" / "hello", ⌫ deletes, 🌐 switches keyboards (long-press shows the list) on devices that need it. — **not yet verified on-device.**
 - [ ] −20 / +20 visibly changes the keyboard height, with no Auto Layout errors in the console. — **not yet verified on-device.**
@@ -63,16 +63,18 @@
     build + tests afterward (still green).
   - Full clean-state verification: `make clean gen build test-mac lint` all pass. `make klm` builds and
     `klm --version` runs.
+  - **iOS Simulator runtime installed** (this Mac had Xcode 27 but no Simulator runtime at all — a
+    one-time ~8 GB download): `xcodebuild -downloadPlatform iOS`, then `xcrun simctl create "iPhone 17"
+    com.apple.CoreSimulator.SimDeviceType.iPhone-17 com.apple.CoreSimulator.SimRuntime.iOS-27-0` (a
+    duplicate "iPhone 17" that Xcode auto-seeded once the runtime landed was deleted). `make test-ios` and
+    the combined `make test` now both pass — **TEST SUCCEEDED**, all 15 tests on
+    `arm64-apple-ios17.0-simulator`.
 
 - **Not done / known issues:**
-  - **`make test-ios` was not run.** This machine has Xcode 27 installed but **no Simulator runtimes at
-    all** (`xcrun simctl list devices` returns nothing). This is a one-time environment setup gap, not a
-    code issue — open Xcode → Settings → Platforms and install an iOS Simulator runtime, then run
-    `xcrun simctl list devices available` to get a device name and `make test SIM="platform=iOS
-    Simulator,name=<that name>"`.
-  - **On-device manual test not performed** (see below) — I have no physical iPhone or booted Simulator
-    to install onto from this session. This is the human step the plan's own workflow (§0.2 step 6)
-    expects you to do.
+  - **On-device (physical iPhone) manual test not performed** (see below) — I have no physical iPhone to
+    install onto from this session. This is the human step the plan's own workflow (§0.2 step 6) expects
+    you to do. (The Simulator side is now fully working — see below — but §6.13-class memory/haptics/
+    clipboard behavior still needs a real device per §5.4.)
   - `Config/Local.xcconfig` in your checkout currently has the placeholder prefix `com.example` (needed
     to get a build working here). Replace `KELID_BUNDLE_PREFIX` with something like `com.yourname` and
     `KELID_TEAM_ID` with your real Apple Developer Team ID before installing on your iPhone — see
@@ -114,11 +116,13 @@
 |---|---|---|---|---|
 | 1 | 2026-09-25 | Added `{ package: KelidKit, product: KelidCore }` as an explicit dependency of both the `Kelid` and `KelidKeyboard` targets in `project.yml`, in addition to what task 0.3's literal snippet lists (`KeyboardUI`, `KelidStorage` for the app; `KeyboardUI` for the extension). | Both `App/KelidApp.swift` and `Keyboard/KeyboardViewController.swift` need `Log` (task 0.10) directly, not just through a module that happens to depend on `KelidCore` transitively. Relying on a transitive, undeclared import would be fragile and contrary to rule 5.1.11 (dependencies should be explicit). | `project.yml`, App target, KelidKeyboard target |
 | 2 | 2026-09-25 | Ran `swiftformat .` once, immediately after scaffolding all Phase 0 files, and treated its output as the checked-in state rather than hand-formatting to match `.swiftformat`. | Faster and more reliable than manually matching SwiftFormat's exact style (indent, doc-comment vs. `//`, MARK spacing, property-body wrapping) by hand; re-verified build + tests were unaffected. | All new Swift files |
+| 3 | 2026-09-25 | Installed the iOS 27.0 Simulator runtime (`xcodebuild -downloadPlatform iOS`) and created an "iPhone 17" Simulator device, rather than leaving `make test-ios` unverified. | This machine had Xcode fully installed but no Simulator runtime at all — a one-time, machine-local setup gap rather than a project issue. Installing it let the acceptance criterion "`make test` succeeds" be fully verified instead of only partially (macOS side only). | Local machine state only (not part of the repo); no project files changed |
 
 ## Measurements
 | Date | Device | iOS | Metric | Value | Notes |
 |---|---|---|---|---|---|
 | 2026-09-25 | — (Simulator build only, generic destination) | — | `make build` | BUILD SUCCEEDED | No device/Simulator memory or latency measurements yet — those need a real device/booted Simulator (Phase 0 doesn't require them; see §6.13 for when they start mattering, Phase 3+). |
+| 2026-09-25 | Simulator: iPhone 17 | iOS 27.0 (24A434) | `make test` (test-mac + test-ios) | TEST SUCCEEDED, 15/15 tests | First real `xcodebuild test` run against a booted-capable Simulator device, after installing the iOS Simulator runtime (it wasn't present at all on this Mac). |
 
 ## Device findings
 (Pasteboard lab results, deletion behavior per host, sound IDs, height-constraint variant, etc.)
