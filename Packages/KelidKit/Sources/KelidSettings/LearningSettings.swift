@@ -1,3 +1,5 @@
+import KelidCore
+
 /// PLAN.md §6.1.6.
 public struct LearningSettings: Codable, Sendable, Equatable {
     public var enabled: Bool

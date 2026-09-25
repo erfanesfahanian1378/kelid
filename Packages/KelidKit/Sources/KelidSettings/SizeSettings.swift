@@ -1,4 +1,5 @@
 import CoreGraphics
+import KelidCore
 
 public enum OneHandedMode: String, Codable, Sendable, CaseIterable {
     case off

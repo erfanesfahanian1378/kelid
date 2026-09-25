@@ -1,3 +1,5 @@
+import KelidCore
+
 public enum ClipboardCaptureMode: String, Codable, Sendable, CaseIterable {
     case auto
     case onTap

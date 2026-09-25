@@ -9,11 +9,16 @@ struct KeyboardLayoutPlaceholderTests {
         #expect(KeyboardLayoutPlaceholder().isReady)
     }
 
-    @Test("bundled Layouts resource folder is reachable")
+    @Test("bundled layout JSON files are reachable")
     func layoutsResourceExists() {
         // Proves the `resources: [.process("Layouts")]` declaration in
         // Package.swift actually produces a resource bundle the module can
-        // find at runtime, ahead of Phase 2 adding real layout JSON there.
-        #expect(Bundle.module.url(forResource: "Layouts", withExtension: nil) != nil)
+        // find at runtime. Checks a specific file rather than the
+        // "Layouts" directory itself: SPM's `.process()` does not
+        // necessarily preserve that directory name in the resource bundle
+        // (confirmed once Phase 2 added real JSON content — see
+        // LayoutRepository, which looks files up by bundle root, not
+        // "Layouts/<id>.json").
+        #expect(Bundle.module.url(forResource: "en.qwerty", withExtension: "json") != nil)
     }
 }
