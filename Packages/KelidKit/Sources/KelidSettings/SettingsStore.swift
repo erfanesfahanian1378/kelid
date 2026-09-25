@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import KelidCore
 import Observation
@@ -127,5 +128,24 @@ public final class SettingsStore {
     /// §6.1.5: resolves the `PredictionSettings` for the given language.
     public func resolvedPrediction(for language: LanguageID) -> PredictionSettings {
         settings.prediction[language]
+    }
+
+    /// Task 4.2: applies §6.3.2's device-class portrait `rowHeight` default
+    /// exactly once per install. `portraitScreenHeight` is the device's
+    /// actual screen height in the portrait orientation — only the caller
+    /// (app/keyboard target, both UIKit-aware) can read that; this module
+    /// stays UIKit-free (rule 5.1.15). A no-op after the first successful
+    /// call (`AdvancedSettings.deviceSizeDefaultsApplied`), so it's safe to
+    /// call from both the app's launch and the keyboard's `viewDidLoad`
+    /// without either one clobbering a resize the user made later — and
+    /// safe to call before either process knows the other has already run,
+    /// since whichever settings blob (local/shared) turns out newer wins
+    /// via the usual `load()` merge.
+    public func applyDeviceSizeDefaultsIfNeeded(portraitScreenHeight: CGFloat) {
+        guard !settings.advanced.deviceSizeDefaultsApplied else { return }
+        update { current in
+            current.size.portrait.rowHeight = DeviceSizeClass.portraitRowHeightDefault(screenHeight: portraitScreenHeight)
+            current.advanced.deviceSizeDefaultsApplied = true
+        }
     }
 }

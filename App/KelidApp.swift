@@ -46,6 +46,10 @@ private struct RootTabView: View {
         TabView {
             HomeView(settingsStore: settingsStore)
                 .tabItem { Label("Home", systemImage: "house") }
+            NavigationStack {
+                SizeLayoutView(settingsStore: settingsStore)
+            }
+            .tabItem { Label("Size & Layout", systemImage: "arrow.up.left.and.arrow.down.right") }
         }
     }
 }

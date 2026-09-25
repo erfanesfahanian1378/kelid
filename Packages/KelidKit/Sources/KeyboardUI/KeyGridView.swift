@@ -18,6 +18,11 @@
         func keyGridView(_ view: KeyGridView, didShowAlternates alternates: [String], for key: KeyDefinition)
         func keyGridView(_ view: KeyGridView, didChangeAlternateSelection index: Int?)
         func keyGridViewDidHideAlternates(_ view: KeyGridView)
+        /// §6.3.6's one-handed side panel (task 4.4) — only fires while the
+        /// panel is actually showing (one-handed mode already on).
+        func keyGridViewDidTapSwitchOneHandedSide(_ view: KeyGridView)
+        func keyGridViewDidTapExitOneHanded(_ view: KeyGridView)
+        func keyGridView(_ view: KeyGridView, didStepCursorFromSidePanel direction: MoveDirection)
     }
 
     /// Builds/positions/reuses `KeyView`s from a `ComputedLayout` (task 3.1),
@@ -41,16 +46,22 @@
         var keyPopupsEnabled = true
 
         let touchTracker: KeyTouchTracker
+        private let bottomLiftView = BottomLiftView(frame: .zero)
         private let keyCallout = KeyCalloutView(frame: .zero)
         private let alternatesCallout = AlternatesCalloutView(frame: .zero)
+        private let sidePanel = SidePanelView(frame: .zero)
 
         override init(frame: CGRect) {
             touchTracker = KeyTouchTracker(settings: TouchSettings())
             super.init(frame: frame)
             isMultipleTouchEnabled = true
             backgroundColor = .clear
+            addSubview(bottomLiftView)
+            sidePanel.isHidden = true
+            addSubview(sidePanel)
             addSubview(keyCallout)
             addSubview(alternatesCallout)
+            sidePanel.delegate = self
         }
 
         @available(*, unavailable)
@@ -103,6 +114,54 @@
                 view.removeFromSuperview()
                 keyViews.removeValue(forKey: id)
             }
+            updateSidePanel(layout: layout, style: style)
+            updateBottomLift(layout: layout, style: style)
+        }
+
+        /// Task 4.5: whatever's left below the last row's bottom edge,
+        /// within this view's own bounds (§6.3.1's `bottomPadding` +
+        /// `bottomLift` — `LayoutEngine` itself doesn't reserve `topPadding`
+        /// as a separate visual inset above the first row, so in practice
+        /// this area is slightly taller than `bottomLift` alone; visually
+        /// identical either way, and not worth reshaping already-tested row
+        /// geometry over 4pt).
+        private func updateBottomLift(layout: ComputedLayout, style: KeyStyle) {
+            guard let lastRowMaxY = layout.rows.last?.frame.maxY else {
+                bottomLiftView.isHidden = true
+                return
+            }
+            let height = layout.bounds.maxY - lastRowMaxY
+            guard height > 0 else {
+                bottomLiftView.isHidden = true
+                return
+            }
+            bottomLiftView.frame = CGRect(x: layout.bounds.minX, y: lastRowMaxY, width: layout.bounds.width, height: height)
+            bottomLiftView.apply(style: style)
+            bottomLiftView.isHidden = false
+            sendSubviewToBack(bottomLiftView)
+        }
+
+        /// §6.3.6: the side panel occupies whatever `LayoutEngine` left
+        /// empty between `contentRect` and the full `bounds` — purely
+        /// geometric (no separate "is one-handed" flag needed): equal
+        /// rects means off, `contentRect` flush with one edge but not the
+        /// other means the free side is the edge it *isn't* flush with.
+        private func updateSidePanel(layout: ComputedLayout, style: KeyStyle) {
+            let bounds = layout.bounds
+            let content = layout.contentRect
+            let epsilon: CGFloat = 0.5
+            let freeOnRight = content.maxX < bounds.maxX - epsilon
+            let freeOnLeft = content.minX > bounds.minX + epsilon
+            guard freeOnRight || freeOnLeft else {
+                sidePanel.isHidden = true
+                return
+            }
+            sidePanel.frame = freeOnRight
+                ? CGRect(x: content.maxX, y: bounds.minY, width: bounds.maxX - content.maxX, height: bounds.height)
+                : CGRect(x: bounds.minX, y: bounds.minY, width: content.minX - bounds.minX, height: bounds.height)
+            sidePanel.apply(style: style)
+            sidePanel.isHidden = false
+            bringSubviewToFront(sidePanel)
         }
 
         private func positionID(row: Int, index: Int) -> String {
@@ -290,6 +349,25 @@
                 }
             }
             return nil
+        }
+    }
+
+    extension KeyGridView: SidePanelViewDelegate {
+        func sidePanelDidTapSwitchSide(_: SidePanelView) {
+            delegate?.keyGridViewDidTapSwitchOneHandedSide(self)
+        }
+
+        func sidePanelDidTapExit(_: SidePanelView) {
+            delegate?.keyGridViewDidTapExitOneHanded(self)
+        }
+
+        func sidePanelDidTapClipboard(_: SidePanelView) {
+            // Phase 5 — the button is disabled until then, so this never
+            // actually fires yet.
+        }
+
+        func sidePanelDidStepCursor(_: SidePanelView, direction: MoveDirection) {
+            delegate?.keyGridView(self, didStepCursorFromSidePanel: direction)
         }
     }
 #endif

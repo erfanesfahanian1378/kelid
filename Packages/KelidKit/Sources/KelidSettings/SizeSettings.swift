@@ -118,6 +118,20 @@ public struct SizeProfile: Sendable, Equatable {
     }
 }
 
+/// §6.3.2's device-class portrait `rowHeight` defaults (task 4.2) — pure
+/// classification by screen height, UIKit-free so it's testable without a
+/// real screen; the caller (app/keyboard target) supplies the actual
+/// `UIScreen` height.
+public enum DeviceSizeClass {
+    public static func portraitRowHeightDefault(screenHeight: CGFloat) -> CGFloat {
+        switch screenHeight {
+        case ..<667.5: 52 // Small: ≤ 667pt (e.g. SE)
+        case 667.5 ... 900: 54 // Standard: 668–900pt
+        default: 56 // Large: > 900pt (Pro Max / Plus)
+        }
+    }
+}
+
 /// PLAN.md §6.1.3: `size.portrait`, `size.landscape` (iPad profiles arrive
 /// in Phase 17 — tolerant decoding means adding them later needs no
 /// migration).

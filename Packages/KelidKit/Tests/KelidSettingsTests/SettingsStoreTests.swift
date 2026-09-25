@@ -109,4 +109,31 @@ struct SettingsStoreTests {
         #expect(store.resolvedPrediction(for: .fa).personalWeight == 0.9)
         #expect(store.resolvedPrediction(for: .en).personalWeight == 0.1)
     }
+
+    // MARK: - Device-class size defaults (task 4.2)
+
+    @Test("applyDeviceSizeDefaultsIfNeeded sets the portrait rowHeight from screen height, once")
+    func appliesDeviceSizeDefaultsOnce() {
+        let local = makeSuite()
+        defer { cleanUp(local.name) }
+        let store = SettingsStore(appGroupIdentifier: nil, localDefaults: local.defaults)
+
+        store.applyDeviceSizeDefaultsIfNeeded(portraitScreenHeight: 926) // large device class (Pro Max/Plus)
+        #expect(store.settings.size.portrait.rowHeight == 56)
+        #expect(store.settings.advanced.deviceSizeDefaultsApplied == true)
+
+        // A later call (e.g. the other process, or the same one again) must
+        // not override a resize the user made in between.
+        store.update { $0.size.portrait.rowHeight = 70 }
+        store.applyDeviceSizeDefaultsIfNeeded(portraitScreenHeight: 568) // would otherwise mean "small" (52)
+        #expect(store.settings.size.portrait.rowHeight == 70)
+    }
+
+    @Test("DeviceSizeClass.portraitRowHeightDefault classifies by §6.3.2's screen-height bands")
+    func deviceSizeClassBands() {
+        #expect(DeviceSizeClass.portraitRowHeightDefault(screenHeight: 568) == 52) // SE-class, ≤ 667
+        #expect(DeviceSizeClass.portraitRowHeightDefault(screenHeight: 667) == 52)
+        #expect(DeviceSizeClass.portraitRowHeightDefault(screenHeight: 844) == 54) // standard, 668–900
+        #expect(DeviceSizeClass.portraitRowHeightDefault(screenHeight: 926) == 56) // Pro Max/Plus, > 900
+    }
 }

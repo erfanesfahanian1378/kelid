@@ -20,17 +20,53 @@
         public let state = KeyboardState()
         public let rootView = KeyboardRootView(frame: .zero)
 
-        private let inputProcessor: InputProcessor
+        // `internal` (not `private`): `KeyboardController+ResizeMode.swift`,
+        // `+QuickSettings.swift` and `+BackspaceRepeat.swift` (separate
+        // files, split out to keep this type's body under SwiftLint's
+        // `type_body_length`) need these — `private` is file-scoped in
+        // Swift, even across extensions of the same type.
+        let inputProcessor: InputProcessor
         private let layoutRepository: LayoutRepository
-        private let feedbackService = FeedbackService()
-        private let documentProvider: () -> TextDocument
+        let feedbackService = FeedbackService()
+        let documentProvider: () -> TextDocument
 
-        private var settings: KeyboardSettings
-        private var currentMetrics: KeyboardMetrics
-        private var composedPage = PageDefinition(rows: [])
+        var settings: KeyboardSettings
+        var currentMetrics: KeyboardMetrics
+        var currentOrientation: SizeOrientation
+        /// Real device screen height (portrait long-side), for §6.3.3's
+        /// total-height clamp (task 4.1) — only the host knows this.
+        var screenHeight: CGFloat
+        /// `currentMetrics` after `HeightCoordinator.clampedMetrics` —
+        /// what's actually used for both the height sent to the host and
+        /// the key geometry, so the two never disagree.
+        private var clampedMetrics: KeyboardMetrics
+        var composedPage = PageDefinition(rows: [])
         private var currentLayoutFile: KeyboardLayoutFile?
-        private var backspaceRepeatTimer: Timer?
+        // `internal`, not `private` — `KeyboardController+BackspaceRepeat.swift`
+        // (a separate file, split out to keep this type's body under
+        // SwiftLint's `type_body_length`) needs it.
+        var backspaceRepeatTimer: Timer?
         private var backspaceSwipeDeletedWords: [String] = []
+
+        // MARK: - Resize mode (task 4.3, implementation in +ResizeMode.swift)
+
+        var resizeSession: ResizeSession?
+        let resizeCoalescer = ThrottledUpdateCoalescer()
+        /// Restored on cancel/reset — `previewSizeProfile` overwrites
+        /// `currentMetrics` continuously while dragging, without ever
+        /// touching `settings`, so this is the only place the pre-resize
+        /// value is remembered.
+        var preResizeMetrics: KeyboardMetrics?
+        var lastSnapHapticFlag = false
+        /// Presents the SwiftUI resize overlay — only the host can host a
+        /// `UIHostingController` as a proper child view controller.
+        public var onPresentResizeOverlay: ((ResizeSession) -> Void)?
+        public var onDismissResizeOverlay: (() -> Void)?
+
+        // MARK: - Quick Settings (task 4.6)
+
+        public var onPresentQuickSettings: ((_ current: QuickSettingsSnapshot, _ resetDefaults: QuickSettingsSnapshot) -> Void)?
+        public var onDismissQuickSettings: (() -> Void)?
 
         /// `UIInputViewController.needsInputModeSwitchKey` — only the host can
         /// compute this; set on every `viewWillAppear`/change (task 3.10).
@@ -54,15 +90,28 @@
         /// Fires whenever the row count or toolbar visibility changes; the host
         /// applies this via its own height constraint (§6.3.4).
         public var onHeightChanged: ((CGFloat) -> Void)?
+        /// `KeyboardController` only ever sees a `KeyboardSettings` *snapshot*
+        /// (`updateSettings(_:)`), not a live `SettingsStore` — only the host
+        /// owns that. One-handed mode toggling/switching-side (task 4.4) and
+        /// the Quick Settings panel (task 4.6) both need to *persist* a
+        /// change, so they call this instead, and the host applies it via
+        /// its own `SettingsStore.update(_:)`; the mutated settings flow
+        /// back the usual way (`.settingsChanged` → `updateSettings(_:)`).
+        public var onRequestSettingsChange: (((inout KeyboardSettings) -> Void) -> Void)?
 
         public init(
             settings: KeyboardSettings,
             metrics: KeyboardMetrics,
+            orientation: SizeOrientation = .portrait,
+            screenHeight: CGFloat = 844,
             layoutRepository: LayoutRepository = .shared,
             documentProvider: @escaping () -> TextDocument
         ) {
             self.settings = settings
             currentMetrics = metrics
+            currentOrientation = orientation
+            self.screenHeight = screenHeight
+            clampedMetrics = metrics
             self.layoutRepository = layoutRepository
             self.documentProvider = documentProvider
             inputProcessor = InputProcessor(
@@ -73,6 +122,8 @@
             super.init()
             state.language = settings.general.enabledLanguages.first ?? .fa
             rootView.keyGridView.delegate = self
+            rootView.toolbarStrip.onTapResize = { [weak self] in self?.startResizeMode() }
+            rootView.toolbarStrip.onTapSettings = { [weak self] in self?.toggleQuickSettings() }
             rebuild()
         }
 
@@ -84,8 +135,18 @@
             rebuild()
         }
 
-        public func updateMetrics(_ metrics: KeyboardMetrics) {
+        /// `screenHeight` is the device's screen height *as currently
+        /// oriented* (task 4.1's §6.3.3 clamp: "≤ 60%/70% of screen
+        /// height" means the height available in whichever orientation is
+        /// active right now, not always the portrait long side).
+        public func updateMetrics(_ metrics: KeyboardMetrics, orientation: SizeOrientation, screenHeight: CGFloat) {
+            // §6.3.7: "rotation during resize mode cancels it."
+            if let resizeSession, resizeSession.orientation != orientation {
+                endResizeMode(save: false)
+            }
             currentMetrics = metrics
+            currentOrientation = orientation
+            self.screenHeight = screenHeight
             rebuild()
         }
 
@@ -112,7 +173,9 @@
 
         // MARK: - Page/layout composition
 
-        private func rebuild() {
+        /// `internal`, not `private` — `+ResizeMode.swift`/`+QuickSettings.swift`
+        /// (separate files) call this too.
+        func rebuild() {
             let requirements = FieldRequirements.resolve(for: state.traits)
             state.language = requirements.forcedLanguage ?? state.language
             state.page = requirements.forcedPage ?? state.page
@@ -121,14 +184,25 @@
             currentLayoutFile = layoutFile
             composedPage = composePage(state.page, from: layoutFile)
 
-            rootView.toolbarHeight = currentMetrics.toolbarHeight
+            // §6.3.3: clamp against the *real* screen before this feeds
+            // either the height constraint or the key geometry, so the two
+            // never disagree about what "clamped" means.
+            clampedMetrics = HeightCoordinator.clampedMetrics(
+                currentMetrics,
+                rowCount: composedPage.rows.count,
+                toolbarVisible: toolbarVisible,
+                screenHeight: screenHeight,
+                orientation: currentOrientation
+            )
+
+            rootView.toolbarHeight = clampedMetrics.toolbarHeight
             rootView.toolbarVisible = toolbarVisible
             rootView.keyGridView.keyPopupsEnabled = settings.general.keyPopups
             restyle()
 
             let height = HeightCoordinator.totalHeight(
                 rowCount: composedPage.rows.count,
-                metrics: currentMetrics,
+                metrics: clampedMetrics,
                 toolbarVisible: toolbarVisible
             )
             onHeightChanged?(height)
@@ -147,14 +221,14 @@
             let computed = LayoutEngine.compute(
                 page: composedPage,
                 in: rootView.keyGridView.bounds,
-                metrics: currentMetrics,
+                metrics: clampedMetrics,
                 direction: direction
             )
             rootView.keyGridView.apply(
                 layout: computed,
                 layoutFile: layoutFile,
                 style: currentStyle(),
-                fontSize: currentMetrics.baseFontSize,
+                fontSize: clampedMetrics.baseFontSize,
                 direction: direction,
                 isLanguageRTL: state.language == .fa
             )
@@ -330,7 +404,9 @@
             }
         }
 
-        private func hapticStyle() -> UIImpactFeedbackGenerator.FeedbackStyle? {
+        /// `internal`, not `private` — `+ResizeMode.swift` (a separate file)
+        /// calls this too.
+        func hapticStyle() -> UIImpactFeedbackGenerator.FeedbackStyle? {
             if settings.appearance.reduceHapticsInLowPower, ProcessInfo.processInfo.isLowPowerModeEnabled {
                 return nil
             }
@@ -356,7 +432,9 @@
 
         // MARK: - Effect application
 
+        /// §6.3.7: "typing disabled while resizing."
         private func perform(_ action: InputAction) {
+            guard state.mode != .resize else { return }
             apply(inputProcessor.handle(action, in: documentProvider()))
         }
 
@@ -405,43 +483,29 @@
             }
         }
 
-        // MARK: - Backspace hold-repeat (task 3.2/3.14, §6.4.6/§6.4.12)
+        // MARK: - Size settings requests (tasks 4.3/4.4/4.6)
 
-        /// Selector-based, not the closure-based `Timer` API: a `block:` closure
-        /// crossing into `@Sendable`/actor-isolation territory is exactly the
-        /// kind of friction `KeyboardController: NSObject` doesn't need to
-        /// invite — `#selector` dispatch on the run loop that scheduled it (the
-        /// main thread, here) is unambiguous under this module's default
-        /// `MainActor` isolation.
-        ///
-        /// Note `handleBackspaceRepeatTick` below: `tickBackspaceHold` doesn't
-        /// recompute `context` or auto-capitalization on every fired delete
-        /// (only `handle(_:in:)` does) — a real but minor gap: `state.shift` can
-        /// lag by one character's worth of staleness while the hold is active,
-        /// self-correcting the moment any other action calls `handle(_:in:)`.
-        /// Fixing it properly means `tickBackspaceHold` returning
-        /// `[InputEffect]` instead of `Bool`, which several
-        /// `InputProcessorTests` assert on directly — left as a follow-up (see
-        /// PROGRESS.md decision log) rather than reshaping tested API mid-phase.
-        private func startBackspaceRepeatTimer() {
-            backspaceRepeatTimer?.invalidate()
-            backspaceRepeatTimer = Timer.scheduledTimer(
-                timeInterval: 1.0 / 60.0, target: self, selector: #selector(handleBackspaceRepeatTick), userInfo: nil, repeats: true
-            )
+        /// Routes a mutation to whichever orientation's `SizeProfile` is
+        /// actually showing right now (`currentOrientation`) through
+        /// `onRequestSettingsChange` — the host applies it and the result
+        /// flows back the normal way (`updateSettings(_:)`).
+        private func requestSizeProfileChange(_ transform: @escaping (inout SizeProfile) -> Void) {
+            let orientation = currentOrientation
+            onRequestSettingsChange? { settings in
+                switch orientation {
+                case .portrait: transform(&settings.size.portrait)
+                case .landscape: transform(&settings.size.landscape)
+                }
+            }
         }
 
-        private func stopBackspaceRepeatTimer() {
-            backspaceRepeatTimer?.invalidate()
-            backspaceRepeatTimer = nil
-            inputProcessor.endBackspaceHold()
-        }
+        // Resize mode (task 4.3) and Quick Settings (task 4.6) are
+        // implemented in `KeyboardController+ResizeMode.swift` and
+        // `+QuickSettings.swift` — split out purely to keep this type's
+        // body under SwiftLint's `type_body_length`.
 
-        @objc private func handleBackspaceRepeatTick() {
-            guard inputProcessor.tickBackspaceHold(in: documentProvider()) else { return }
-            guard hasFullAccess, let style = hapticStyle() else { return }
-            feedbackService.prepareHaptic(style: style)
-            feedbackService.fireHaptic()
-        }
+        // Backspace hold-repeat timing (task 3.2/3.14, §6.4.6/§6.4.12) is
+        // implemented in `KeyboardController+BackspaceRepeat.swift`.
     }
 
     // MARK: - KeyGridViewDelegate (task 3.2/3.8)
@@ -489,6 +553,7 @@
         /// document (via `contextBefore`'s before/after diff) and replays it on
         /// the way back — cleared whenever a fresh backspace touch begins.
         func keyGridView(_: KeyGridView, didChangeBackspaceSwipeWordDelta delta: Int) {
+            guard state.mode != .resize else { return } // §6.3.7: typing disabled while resizing
             let doc = documentProvider()
             if delta > 0 {
                 for _ in 0 ..< delta {
@@ -514,5 +579,27 @@
         func keyGridView(_: KeyGridView, didChangeAlternateSelection _: Int?) {}
 
         func keyGridViewDidHideAlternates(_: KeyGridView) {}
+
+        // MARK: - One-handed side panel (task 4.4)
+
+        func keyGridViewDidTapSwitchOneHandedSide(_: KeyGridView) {
+            requestSizeProfileChange { profile in
+                switch profile.oneHanded {
+                case .left: profile.oneHanded = .right
+                case .right: profile.oneHanded = .left
+                case .off: break // the panel only shows once already one-handed
+                }
+            }
+        }
+
+        func keyGridViewDidTapExitOneHanded(_: KeyGridView) {
+            requestSizeProfileChange { profile in
+                profile.oneHanded = .off
+            }
+        }
+
+        func keyGridView(_: KeyGridView, didStepCursorFromSidePanel direction: MoveDirection) {
+            perform(.moveCursor(direction == .forward ? 1 : -1))
+        }
     }
 #endif

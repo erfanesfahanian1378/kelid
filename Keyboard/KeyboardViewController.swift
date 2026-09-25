@@ -4,6 +4,7 @@ import KelidSettings
 import KelidStorage
 import KeyboardLayout
 import KeyboardUI
+import SwiftUI
 import UIKit
 
 /// Keyboard extension entry point.
@@ -26,6 +27,12 @@ final class KeyboardViewController: UIInputViewController {
 
     private var settingsObservationToken: DarwinObservationToken?
     private var controller: KeyboardController?
+    /// Resize mode (task 4.3) and Quick Settings (task 4.6) are mutually
+    /// exclusive SwiftUI panels hosted as a proper child view controller —
+    /// only a real `UIViewController` can do that, which is why
+    /// `KeyboardController` only ever hands over the model and asks the
+    /// host to present/dismiss it.
+    private var overlayHostingController: UIViewController?
 
     /// One stable instance for this view controller's whole lifetime —
     /// see `ProxyTextDocument`'s own doc comment for why identity must be
@@ -38,6 +45,11 @@ final class KeyboardViewController: UIInputViewController {
         inputView?.allowsSelfSizing = true
         buildUI()
         observeExtensionLifecycleNotifications()
+        // Task 4.2: one-time device-class rowHeight default. Safe to call
+        // on every fresh `KeyboardViewController` instance (§2.1 C13 — the
+        // system may recreate this per presentation) since it's a no-op
+        // once `AdvancedSettings.deviceSizeDefaultsApplied` is set.
+        services.settings.applyDeviceSizeDefaultsIfNeeded(portraitScreenHeight: screenHeight(for: .portrait))
         settingsObservationToken = DarwinNotifier.shared.observe(.settingsChanged) { [weak self] in
             // `DarwinNotifier` guarantees delivery on the main thread, but
             // that guarantee isn't visible to the type system since the
@@ -61,6 +73,12 @@ final class KeyboardViewController: UIInputViewController {
         controller.needsGlobeKey = needsInputModeSwitchKey
         controller.hasFullAccess = hasFullAccess
         controller.systemAppearance = mapAppearance(traitCollection.userInterfaceStyle)
+        // Defensive re-check, not just relying on `traitCollectionDidChange`:
+        // if the extension was backgrounded in one orientation and re-shown
+        // in another without this instance observing a trait change in
+        // between, this keeps metrics from going stale (task 4.1).
+        let orientation = currentOrientation()
+        controller.updateMetrics(currentMetrics(), orientation: orientation, screenHeight: screenHeight(for: orientation))
         controller.fieldTraitsDidChange()
         refreshDebugOverlay()
     }
@@ -82,7 +100,8 @@ final class KeyboardViewController: UIInputViewController {
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         controller?.systemAppearance = mapAppearance(traitCollection.userInterfaceStyle)
-        controller?.updateMetrics(currentMetrics())
+        let orientation = currentOrientation()
+        controller?.updateMetrics(currentMetrics(), orientation: orientation, screenHeight: screenHeight(for: orientation))
     }
 
     override func textWillChange(_: UITextInput?) {
@@ -107,14 +126,38 @@ final class KeyboardViewController: UIInputViewController {
         // strongly here would be a reference cycle (this view controller ↔
         // its controller ↔ this closure).
         let document = document
+        let orientation = currentOrientation()
         let newController = KeyboardController(
             settings: services.settings.settings,
             metrics: currentMetrics(),
+            orientation: orientation,
+            screenHeight: screenHeight(for: orientation),
             documentProvider: { document }
         )
         newController.onNextInputMode = { [weak self] in self?.advanceToNextInputMode() }
         newController.onDismissKeyboard = { [weak self] in self?.dismissKeyboard() }
         newController.onHeightChanged = { [weak self] height in self?.applyHeight(height) }
+        newController.onRequestSettingsChange = { [weak self] transform in self?.services.settings.update(transform) }
+        newController.onPresentResizeOverlay = { [weak self, weak newController] session in
+            let view = ResizeOverlayView(
+                session: session,
+                onDone: { newController?.endResizeMode(save: true) },
+                onReset: { session.reset() }
+            )
+            self?.presentOverlay(UIHostingController(rootView: view))
+        }
+        newController.onDismissResizeOverlay = { [weak self] in self?.dismissOverlay() }
+        newController.onPresentQuickSettings = { [weak self, weak newController] snapshot, resetDefaults in
+            let view = QuickSettingsView(
+                snapshot: snapshot,
+                resetSizeDefaults: resetDefaults,
+                onChange: { updated in newController?.applyQuickSettingsChange(updated) },
+                onResizeVisually: { newController?.requestResizeFromQuickSettings() },
+                onDone: { newController?.toggleQuickSettings() }
+            )
+            self?.presentOverlay(UIHostingController(rootView: view))
+        }
+        newController.onDismissQuickSettings = { [weak self] in self?.dismissOverlay() }
         controller = newController
         installRootView(newController.rootView)
         return newController
@@ -131,6 +174,40 @@ final class KeyboardViewController: UIInputViewController {
         ])
     }
 
+    // MARK: - Resize/Quick Settings overlay hosting (tasks 4.3/4.6)
+
+    /// Proper child-view-controller containment (`addChild`/`didMove`),
+    /// spanning the same area as the key grid — only one overlay is ever
+    /// shown at a time (resize mode and Quick Settings are mutually
+    /// exclusive `KeyboardState.mode`s), so this always replaces whatever
+    /// was there.
+    private func presentOverlay(_ hosting: UIViewController) {
+        dismissOverlay()
+        addChild(hosting)
+        hosting.view.translatesAutoresizingMaskIntoConstraints = false
+        hosting.view.backgroundColor = .clear
+        view.addSubview(hosting.view)
+        NSLayoutConstraint.activate([
+            hosting.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hosting.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hosting.view.topAnchor.constraint(equalTo: view.topAnchor),
+            hosting.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        hosting.didMove(toParent: self)
+        overlayHostingController = hosting
+    }
+
+    /// §6.3.7's own pitfall reminder: "keep resize-mode views out of the
+    /// hierarchy when not resizing (memory)" — full teardown, not just
+    /// hiding, applies equally to Quick Settings.
+    private func dismissOverlay() {
+        guard let hosting = overlayHostingController else { return }
+        hosting.willMove(toParent: nil)
+        hosting.view.removeFromSuperview()
+        hosting.removeFromParent()
+        overlayHostingController = nil
+    }
+
     private func settingsDidChange() {
         services.settings.load()
         controller?.updateSettings(services.settings.settings)
@@ -139,9 +216,25 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - Geometry/appearance mapping (only the host view controller has these)
 
+    private func currentOrientation() -> SizeOrientation {
+        traitCollection.verticalSizeClass == .compact ? .landscape : .portrait
+    }
+
     private func currentMetrics() -> KeyboardMetrics {
-        let orientation: SizeOrientation = traitCollection.verticalSizeClass == .compact ? .landscape : .portrait
-        return KeyboardMetrics(sizeProfile: services.settings.sizeProfile(for: orientation))
+        KeyboardMetrics(sizeProfile: services.settings.sizeProfile(for: currentOrientation()))
+    }
+
+    /// `UIScreen.main.bounds` doesn't reliably rotate with interface
+    /// orientation across iOS versions, so this reads the device's fixed
+    /// physical dimensions and picks the long/short side by `orientation`
+    /// instead of trusting whichever axis `bounds` currently reports as
+    /// "height" — orientation-independent and always correct for a fixed
+    /// physical screen.
+    private func screenHeight(for orientation: SizeOrientation) -> CGFloat {
+        let bounds = UIScreen.main.bounds
+        let longSide = max(bounds.width, bounds.height)
+        let shortSide = min(bounds.width, bounds.height)
+        return orientation == .landscape ? shortSide : longSide
     }
 
     private func mapAppearance(_ style: UIUserInterfaceStyle) -> UIKeyboardAppearance {

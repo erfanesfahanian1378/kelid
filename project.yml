@@ -39,6 +39,8 @@ targets:
       - { package: KelidKit, product: KeyboardUI }
       - { package: KelidKit, product: KelidStorage }
       - { package: KelidKit, product: KelidCore }
+      - { package: KelidKit, product: KelidSettings }
+      - { package: KelidKit, product: KeyboardLayout }
   KelidKeyboard:
     type: app-extension
     platform: iOS
