@@ -69,6 +69,15 @@
     duplicate "iPhone 17" that Xcode auto-seeded once the runtime landed was deleted). `make test-ios` and
     the combined `make test` now both pass — **TEST SUCCEEDED**, all 15 tests on
     `arm64-apple-ios17.0-simulator`.
+  - **Installed and launched the app on that Simulator** (`xcrun simctl install` / `launch`): it starts
+    without crashing, `com.example.kelid`'s process stays alive, and `listapps` confirms the App Group
+    (`group.com.example.kelid`) container was created. A screenshot confirms the UI renders exactly as
+    coded — the three setup steps, "Open Settings", and the empty "Try it" field. Full interactive
+    testing (adding the keyboard in Settings, typing, Full Access toggle, ±20 height) needs touch input
+    this session can't synthesize — that's the manual step below, which you can now do **either in this
+    already-booted Simulator or on your iPhone** (Simulator is faster to iterate on; iPhone is still
+    required before calling the phase fully done, since the memory limit and real clipboard/haptics
+    behavior only apply on-device — see §5.4).
 
 - **Not done / known issues:**
   - **On-device (physical iPhone) manual test not performed** (see below) — I have no physical iPhone to
@@ -85,7 +94,11 @@
     0; left as-is since PLAN.md's task 0.9 only specified the `line_length` and `force_unwrapping` rules
     for `.swiftlint.yml`. Revisit if it gets noisy.
 
-- **How to test (your turn — do this on your iPhone):**
+- **How to test (your turn):** the Simulator this session set up is already booted with the app
+  installed (`com.example.kelid`, the placeholder-prefix build), so you can try steps 3–7 below in the
+  Simulator right now for a fast check — but still repeat the whole thing on your **physical iPhone**
+  before considering Phase 0 done, since the memory limit, haptics, sounds and real clipboard behavior
+  only apply on-device (§5.4).
   1. `cp Config/Local.xcconfig.example Config/Local.xcconfig`, then edit it with your own bundle prefix
      and Team ID (see README.md). This **replaces** the placeholder one created for this session.
   2. `make gen && open Kelid.xcodeproj`, select your iPhone as the run destination, build & run the
