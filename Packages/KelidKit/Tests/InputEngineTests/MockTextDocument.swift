@@ -67,22 +67,46 @@ final class MockTextDocument: TextDocument {
         contextIsNil ? nil : rawContextAfter()
     }
 
+    // Every mutation below recomputes `cursorIndex` from a *character (or
+    // scalar) offset* taken before mutating `buffer`, rather than reusing an
+    // index computed pre-mutation directly — Swift's `String.Index` is not
+    // guaranteed valid across a mutation of the string it was derived from
+    // even when the position it names is outside the edited range (e.g.
+    // `buffer.removeSubrange(previous..<cursorIndex); cursorIndex = previous`
+    // traps with "String index range is out of bounds" once a fused
+    // grapheme cluster like a ZWNJ-joined letter is involved). Recomputing
+    // via `index(_:offsetBy:)` from a freshly-taken `startIndex` sidesteps
+    // this entirely.
+
     func insertText(_ text: String) {
         freezeContextIfNeeded()
+        // Scalar offsets, not Character offsets: inserted text can *fuse*
+        // with the existing character right before the insertion point
+        // (e.g. inserting ZWNJ right after a letter joins them into one
+        // grapheme cluster), so "old character count + inserted character
+        // count" does not reliably predict the new cursor's character
+        // offset — the total can grow by *fewer* graphemes than characters
+        // inserted. Scalar counts aren't affected by grapheme fusion.
+        var scalarOffset: Int
         if let selection = selectionRange {
+            scalarOffset = buffer.unicodeScalars.distance(from: buffer.unicodeScalars.startIndex, to: selection.lowerBound)
             buffer.removeSubrange(selection)
-            cursorIndex = selection.lowerBound
             selectionRange = nil
+        } else {
+            scalarOffset = buffer.unicodeScalars.distance(from: buffer.unicodeScalars.startIndex, to: cursorIndex)
         }
-        buffer.insert(contentsOf: text, at: cursorIndex)
-        cursorIndex = buffer.index(cursorIndex, offsetBy: text.count)
+        let insertionIndex = buffer.unicodeScalars.index(buffer.unicodeScalars.startIndex, offsetBy: scalarOffset)
+        buffer.insert(contentsOf: text, at: insertionIndex)
+        let newScalarOffset = scalarOffset + text.unicodeScalars.count
+        cursorIndex = buffer.unicodeScalars.index(buffer.unicodeScalars.startIndex, offsetBy: newScalarOffset)
     }
 
     func deleteBackward() {
         freezeContextIfNeeded()
         if let selection = selectionRange {
+            let offset = buffer.unicodeScalars.distance(from: buffer.unicodeScalars.startIndex, to: selection.lowerBound)
             buffer.removeSubrange(selection)
-            cursorIndex = selection.lowerBound
+            cursorIndex = buffer.unicodeScalars.index(buffer.unicodeScalars.startIndex, offsetBy: offset)
             selectionRange = nil
             return
         }
@@ -90,14 +114,16 @@ final class MockTextDocument: TextDocument {
         switch deletionGranularity {
         case .grapheme:
             let previous = buffer.index(before: cursorIndex)
+            let offset = buffer.unicodeScalars.distance(from: buffer.unicodeScalars.startIndex, to: previous)
             buffer.removeSubrange(previous ..< cursorIndex)
-            cursorIndex = previous
+            cursorIndex = buffer.unicodeScalars.index(buffer.unicodeScalars.startIndex, offsetBy: offset)
         case .scalar:
             // A grapheme boundary is always also a scalar boundary, so
             // `cursorIndex` is valid to index directly into `.unicodeScalars`.
             let previous = buffer.unicodeScalars.index(before: cursorIndex)
+            let offset = buffer.unicodeScalars.distance(from: buffer.unicodeScalars.startIndex, to: previous)
             buffer.unicodeScalars.removeSubrange(previous ..< cursorIndex)
-            cursorIndex = previous
+            cursorIndex = buffer.unicodeScalars.index(buffer.unicodeScalars.startIndex, offsetBy: offset)
         }
     }
 

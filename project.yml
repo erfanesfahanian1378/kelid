@@ -71,6 +71,7 @@ targets:
       - { package: KelidKit, product: KelidSettings }
       - { package: KelidKit, product: KelidStorage }
       - { package: KelidKit, product: InputEngine }
+      - { package: KelidKit, product: KeyboardLayout }
 schemes:
   Kelid:
     build: { targets: { Kelid: all, KelidKeyboard: all } }

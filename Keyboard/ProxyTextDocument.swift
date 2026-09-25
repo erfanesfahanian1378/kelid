@@ -5,43 +5,54 @@ import UIKit
 /// protocol (rule 5.1.5) — the only place in the keyboard target allowed to
 /// touch `UITextDocumentProxy` directly.
 ///
-/// `documentIdentifier` is a fresh UUID per instance. For Phase 1 that's
-/// enough (nothing depends on it yet); Phase 3 makes document-change
-/// detection precise (the shadow buffer, §6.4.8) and decides exactly when
-/// `KeyboardViewController` should create a new `ProxyTextDocument` versus
-/// reusing one.
+/// Holds `viewController` *weakly* and reads `textDocumentProxy` fresh on
+/// every access (never stores the proxy itself) — `KeyboardViewController`
+/// keeps exactly one long-lived instance of this type for its whole
+/// lifetime (see its `document` property) rather than one per access: a
+/// stable `documentIdentifier` is what lets `InputProcessor`'s shadow
+/// buffer (§6.4.8) tell "same document, more typing" apart from "focus
+/// moved to a different field" — recreating this on every keystroke would
+/// reset that buffer every time. A weak back-reference (rather than the
+/// closure Phase 1 used) means whichever object holds *this* instance
+/// long-term — including a closure captured by `KeyboardController`,
+/// Phase 3's actual long-term holder — can do so without creating a
+/// reference cycle back to the view controller.
 @MainActor
 final class ProxyTextDocument: TextDocument {
-    private let proxyProvider: () -> UITextDocumentProxy
+    private weak var viewController: UIInputViewController?
 
     let documentIdentifier = UUID()
 
-    init(proxyProvider: @escaping () -> UITextDocumentProxy) {
-        self.proxyProvider = proxyProvider
+    init(viewController: UIInputViewController) {
+        self.viewController = viewController
     }
 
-    private var proxy: UITextDocumentProxy {
-        proxyProvider()
+    /// `nil` only once the view controller itself is gone — at which point
+    /// nothing should still be calling into this instance anyway, so every
+    /// accessor below degrades to an inert default rather than crashing.
+    private var proxy: UITextDocumentProxy? {
+        viewController?.textDocumentProxy
     }
 
     var contextBefore: String? {
-        proxy.documentContextBeforeInput
+        proxy?.documentContextBeforeInput
     }
 
     var contextAfter: String? {
-        proxy.documentContextAfterInput
+        proxy?.documentContextAfterInput
     }
 
     var selectedText: String? {
-        proxy.selectedText
+        proxy?.selectedText
     }
 
     var hasText: Bool {
-        proxy.hasText
+        proxy?.hasText ?? false
     }
 
     var traits: FieldTraits {
-        FieldTraits(
+        guard let proxy else { return .default }
+        return FieldTraits(
             keyboardType: Self.map(proxy.keyboardType),
             returnKeyType: Self.map(proxy.returnKeyType),
             autocapitalization: Self.map(proxy.autocapitalizationType),
@@ -53,15 +64,15 @@ final class ProxyTextDocument: TextDocument {
     }
 
     func insertText(_ text: String) {
-        proxy.insertText(text)
+        proxy?.insertText(text)
     }
 
     func deleteBackward() {
-        proxy.deleteBackward()
+        proxy?.deleteBackward()
     }
 
     func adjustTextPosition(byCharacterOffset offset: Int) {
-        proxy.adjustTextPosition(byCharacterOffset: offset)
+        proxy?.adjustTextPosition(byCharacterOffset: offset)
     }
 
     // MARK: - Trait mapping (UIKit -> our own UIKit-free enums)
