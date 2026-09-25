@@ -68,6 +68,9 @@ targets:
     dependencies:
       - { package: KelidKit, product: KeyboardUI }
       - { package: KelidKit, product: KelidCore }
+      - { package: KelidKit, product: KelidSettings }
+      - { package: KelidKit, product: KelidStorage }
+      - { package: KelidKit, product: InputEngine }
 schemes:
   Kelid:
     build: { targets: { Kelid: all, KelidKeyboard: all } }

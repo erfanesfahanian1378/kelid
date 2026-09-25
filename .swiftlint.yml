@@ -8,6 +8,25 @@ excluded:
 opt_in_rules:
   - force_unwrapping
 
+# force_unwrapping has no per-rule file exclusion support in this SwiftLint
+# version, so the warnings it raises inside Tests/ (force unwraps are
+# allowed there — rule 5.1.2) are expected noise, not something to silence.
+
 line_length:
   warning: 140
   error: 200
+
+# The plan's own §6.1.1 tolerant-decoding pattern uses `c` (container) and
+# `d` (defaults); GRDB's own documented API style uses `db` and `t` (table
+# builder). Default min_length (3, error below 2) fights both conventions.
+identifier_name:
+  min_length:
+    warning: 1
+  allowed_symbols:
+    - "_"
+
+# Straightforward UIKit-trait-to-our-enum mapping switches (e.g.
+# ProxyTextDocument) are wide, not genuinely complex — many parallel cases,
+# not nested logic.
+cyclomatic_complexity:
+  warning: 15

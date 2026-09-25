@@ -56,9 +56,14 @@ public enum Log {
     }
 
     public static func logger(_ category: Category) -> Logger {
+        Logger(subsystem: currentSubsystem, category: category.rawValue)
+    }
+
+    /// Exposed so `Signposts` can share the same subsystem without its own
+    /// copy of the configure/lock dance.
+    static var currentSubsystem: String {
         lock.lock()
-        let currentSubsystem = subsystem
-        lock.unlock()
-        return Logger(subsystem: currentSubsystem, category: category.rawValue)
+        defer { lock.unlock() }
+        return subsystem
     }
 }
