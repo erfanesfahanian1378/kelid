@@ -36,7 +36,9 @@ public final class InputProcessor {
     public private(set) var shiftState: ShiftState = .off
     private var lastManualShiftTapAt: Date?
     private var lastSpaceTapAt: Date?
-    private var autoSpacePending = false
+    /// Not `private`: `InputProcessor+EditActions.swift` sets this from
+    /// `insertSuggestion` too.
+    var autoSpacePending = false
     /// Not `private`: `InputProcessor+Context.swift` reads this too.
     var currentLanguage: LanguageID
     /// `internal` (not `private`): `InputProcessor+EditActions.swift` (a
@@ -61,6 +63,11 @@ public final class InputProcessor {
     enum UndoEntry {
         case inserted(String)
         case deleted(String)
+        /// A word replacement (suggestion accept, §6.4.8/§6.4.9): undoing it
+        /// is one keyboard-level action, not two — deleting `inserted` then
+        /// restoring `deleted` in a single `undo` tap, not one tap per
+        /// half of the replacement.
+        case replaced(deleted: String, inserted: String)
     }
 
     var undoStack: [UndoEntry] = []
@@ -106,14 +113,17 @@ public final class InputProcessor {
 
         case .backspace:
             effects += performBackspace(in: doc)
+            effects.append(.requestSuggestions)
 
         case .deleteWordBackward:
             effects += deleteWordBackward(in: doc)
+            effects.append(.requestSuggestions)
 
         case .returnKey:
             doc.insertText("\n")
             shadowBuffer.recordInsertion("\n")
             effects += resolveShiftAfterInsertion()
+            effects.append(.requestSuggestions)
 
         case .shift:
             effects += handleShiftTap()
@@ -136,31 +146,37 @@ public final class InputProcessor {
 
         case let .moveCursor(offset):
             doc.adjustTextPosition(byCharacterOffset: offset)
+            effects.append(.requestSuggestions)
 
         case let .moveCursorWord(direction):
             doc.adjustTextPosition(byCharacterOffset: wordBoundaryOffset(direction: direction, in: doc))
+            effects.append(.requestSuggestions)
 
         case let .moveCursorLine(direction):
             doc.adjustTextPosition(byCharacterOffset: lineBoundaryOffset(direction: direction, in: doc))
+            effects.append(.requestSuggestions)
 
-        case .insertSuggestion:
-            // Phase 7-8: not yet implemented.
-            break
+        case let .insertSuggestion(suggestion):
+            effects += insertSuggestion(suggestion, in: doc)
+            clearsAutoSpace = false // insertSuggestion sets autoSpacePending itself, same reasoning as .space
 
         case let .insertClip(text):
             effects += insertClip(text, in: doc)
+            effects.append(.requestSuggestions)
 
         case .copySelection:
             effects += copySelection(in: doc)
 
         case .cutSelection:
             effects += cutSelection(in: doc)
+            effects.append(.requestSuggestions)
 
         case .pasteClipboard:
             effects.append(.requestPasteFromPasteboard)
 
         case .undo:
             performUndo(in: doc)
+            effects.append(.requestSuggestions)
 
         case .dismissKeyboard:
             effects.append(.dismissKeyboard)

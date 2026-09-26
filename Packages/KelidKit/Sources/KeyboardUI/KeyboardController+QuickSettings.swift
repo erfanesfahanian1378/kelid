@@ -12,7 +12,7 @@
             } else {
                 state.mode = .quickSettings
                 onPresentQuickSettings?(
-                    QuickSettingsSnapshot(settings: settings, orientation: currentOrientation),
+                    QuickSettingsSnapshot(settings: settings, orientation: currentOrientation, language: state.language),
                     QuickSettingsSnapshot.deviceDefaults(orientation: currentOrientation, deviceDefaultRowHeight: deviceDefaultRowHeight)
                 )
             }

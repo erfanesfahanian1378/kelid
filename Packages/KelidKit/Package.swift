@@ -170,6 +170,7 @@ let package = Package(
             name: "KeyboardUITests",
             dependencies: [
                 "KeyboardUI",
+                "PredictionEngine",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             ]
         ),

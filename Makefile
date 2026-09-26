@@ -26,9 +26,15 @@ lint:
 format:
 	swiftformat .
 
-# Placeholder until Phase 6+ builds the real klm tool and data pipeline.
+# Task 7.4: builds both languages' .klm files from the quick/full pipeline's
+# unigram TSVs (run `make data-quick` or `make data-full` first) into
+# Keyboard/Resources/LM/, where the keyboard extension target bundles them
+# (task 7.5 — not in the KelidKit package, since only the extension ships
+# them).
 klm:
-	cd Tools/klm && swift build
+	mkdir -p Keyboard/Resources/LM
+	cd Tools/klm && swift run klm build --lang fa --unigrams ../data-pipeline/out/fa.unigrams.tsv --out ../../Keyboard/Resources/LM/fa.klm
+	cd Tools/klm && swift run klm build --lang en --unigrams ../data-pipeline/out/en.unigrams.tsv --out ../../Keyboard/Resources/LM/en.klm
 
 # Task 6.3: hermitdave word-frequency lists -> out/{fa,en}.unigrams.tsv.
 # Finishes in seconds, not the "under 5 minutes" acceptance criterion's

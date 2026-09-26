@@ -5,6 +5,7 @@
     import KelidCore
     import KelidSettings
     import KeyboardLayout
+    import PredictionEngine
     import UIKit
 
     /// Wires touch → `InputProcessor` → `TextDocument` → effects → UI (task 3.8).
@@ -124,6 +125,15 @@
         public var onPresentEditPanel: ((EditPanelModel) -> Void)?
         public var onDismissEditPanel: (() -> Void)?
 
+        // MARK: - Prediction (Phase 7, implementation in +Suggestions.swift)
+
+        let suggestionService: SuggestionService
+        /// §6.7.4's `generation`: incremented once per `.requestSuggestions`
+        /// effect, so a `suggest(_:)` result that comes back after a newer
+        /// request already superseded it is dropped instead of overwriting
+        /// `state.suggestions` with stale content.
+        var suggestionGeneration = 0
+
         public init(
             settings: KeyboardSettings,
             metrics: KeyboardMetrics,
@@ -131,6 +141,7 @@
             screenHeight: CGFloat = 844,
             layoutRepository: LayoutRepository = .shared,
             clipboardService: ClipboardService,
+            suggestionService: SuggestionService,
             documentProvider: @escaping () -> TextDocument
         ) {
             self.settings = settings
@@ -140,6 +151,7 @@
             clampedMetrics = metrics
             self.layoutRepository = layoutRepository
             self.clipboardService = clipboardService
+            self.suggestionService = suggestionService
             self.documentProvider = documentProvider
             inputProcessor = InputProcessor(
                 settings: InputSettings(settings.general, clipSmartSpacing: settings.clipboard.smartSpacing),
@@ -155,7 +167,10 @@
             rootView.toolbarStrip.onTapEdit = { [weak self] in self?.toggleEditPanel() }
             rootView.toolbarStrip.onTapLabel = { [weak self] in self?.tapClipChip() }
             observeToolbarText()
+            observeSuggestions()
+            wireSuggestionBar()
             rebuild()
+            loadPredictionModels()
         }
 
         // MARK: - Settings / metrics / geometry updates
@@ -312,7 +327,7 @@
                     state.language = language
                     needsRebuild = true
                 case .requestSuggestions:
-                    break // Phase 7+
+                    requestSuggestions()
                 case .feedback:
                     break // driven directly by touch events (see KeyGridViewDelegate conformance), not this effect
                 case .learn:

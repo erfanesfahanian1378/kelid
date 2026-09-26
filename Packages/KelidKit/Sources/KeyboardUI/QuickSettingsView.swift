@@ -40,6 +40,7 @@
                     sizeSection
                     typingSection
                     languageSection
+                    predictionSection
                     clipboardSection
                     Section {
                         Text("More settings in the Kelid app")
@@ -134,6 +135,34 @@
         }
 
         /// Task 5.11.
+        /// Task 7.11 — controls the *current typing language's*
+        /// `PredictionSettings` (`snapshot.predictionLanguage`, set by
+        /// `KeyboardController` to `state.language` when it builds this
+        /// snapshot); `toolbarMode` is the one field here that isn't
+        /// per-language.
+        private var predictionSection: some View {
+            Section("Suggestions (\(snapshot.predictionLanguage == .fa ? "Persian" : "English"))") {
+                Toggle("Enabled", isOn: $snapshot.predictionEnabled)
+                if snapshot.predictionEnabled {
+                    Stepper(
+                        "Suggestions shown: \(snapshot.predictionSuggestionCount)",
+                        value: $snapshot.predictionSuggestionCount,
+                        in: 3 ... 5
+                    )
+                    Toggle("Show what you typed", isOn: $snapshot.predictionShowVerbatimSlot)
+                    if snapshot.predictionLanguage == .fa {
+                        Toggle("Prefer نیم\u{200C}فاصله spellings", isOn: $snapshot.predictionPreferZWNJForms)
+                    }
+                }
+                Picker("Toolbar shows", selection: $snapshot.toolbarMode) {
+                    Text("Suggestions, then icons").tag(ToolbarMode.auto)
+                    Text("Suggestions only").tag(ToolbarMode.suggestionsOnly)
+                    Text("Icons only").tag(ToolbarMode.iconsOnly)
+                    Text("Hidden").tag(ToolbarMode.hidden)
+                }
+            }
+        }
+
         private var clipboardSection: some View {
             Section("Clipboard") {
                 Toggle("Enabled", isOn: $snapshot.clipboardEnabled)

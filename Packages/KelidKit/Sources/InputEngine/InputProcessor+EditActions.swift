@@ -27,6 +27,54 @@ extension InputProcessor {
         return resolveShiftAfterInsertion()
     }
 
+    // MARK: - Suggestion accept (task 7.8, §6.4.8's word-replacement algorithm)
+
+    /// Replaces the currently-typed word (`context.prefix`) with
+    /// `suggestion.text`, then a space — §6.4.8's own 4-step algorithm,
+    /// including its "verify what actually got deleted, restore any
+    /// leftover combining mark/ZWNJ, bounded to 4 extra calls" resilience
+    /// (the same pattern `insertSpace`'s ZWNJ handling already uses).
+    func insertSuggestion(_ suggestion: Suggestion, in doc: TextDocument) -> [InputEffect] {
+        let before = doc.contextBefore ?? shadowBuffer.contents
+        let prefix = context.prefix
+        for _ in prefix {
+            doc.deleteBackward()
+        }
+        shadowBuffer.recordDeletion(count: prefix.count)
+
+        let expectedRemainder = String(before.dropLast(prefix.count))
+        var actualRemainder = doc.contextBefore ?? ""
+        var extraAttempts = 0
+        while actualRemainder != expectedRemainder, expectedRemainder.hasPrefix(actualRemainder), extraAttempts < 4 {
+            // The host deleted more than `prefix` alone (a fused grapheme
+            // cluster) — restore the extra trailing part.
+            let overDeleted = String(expectedRemainder.dropFirst(actualRemainder.count))
+            doc.insertText(overDeleted)
+            shadowBuffer.recordInsertion(overDeleted)
+            actualRemainder = doc.contextBefore ?? ""
+            extraAttempts += 1
+        }
+
+        // What actually left the document, for a single-tap undo — computed
+        // from the real before/after diff (like `deleteWordBackward`'s own
+        // undo capture) rather than assumed to be exactly `prefix`, since
+        // the leftover-cleanup loop above may have changed that.
+        var actuallyDeleted = prefix
+        if before.hasPrefix(actualRemainder), before.count > actualRemainder.count {
+            actuallyDeleted = String(before.dropFirst(actualRemainder.count))
+        }
+
+        let replacement = suggestion.text + " "
+        doc.insertText(replacement)
+        shadowBuffer.recordInsertion(replacement)
+        autoSpacePending = true
+        pushUndo(.replaced(deleted: actuallyDeleted, inserted: replacement))
+
+        var effects = resolveShiftAfterInsertion()
+        effects.append(.requestSuggestions)
+        return effects
+    }
+
     // MARK: - Edit panel: Copy/Cut/Paste (§6.4.9)
 
     /// `InputProcessor` has no pasteboard access (rule 5.1.5) — this only
@@ -79,6 +127,13 @@ extension InputProcessor {
         case let .deleted(text):
             doc.insertText(text)
             shadowBuffer.recordInsertion(text)
+        case let .replaced(deleted, inserted):
+            for _ in inserted {
+                doc.deleteBackward()
+            }
+            shadowBuffer.recordDeletion(count: inserted.count)
+            doc.insertText(deleted)
+            shadowBuffer.recordInsertion(deleted)
         }
     }
 }

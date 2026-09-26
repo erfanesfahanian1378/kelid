@@ -36,7 +36,17 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
     public var clipboardSkipSensitive: Bool
     public var clipboardCaptureImages: Bool
 
-    public init(settings: KeyboardSettings, orientation: SizeOrientation) {
+    // Prediction (§6.1.5, task 7.11) — for `language` specifically (the
+    // keyboard panel passes its current typing language; `toolbarMode` is
+    // the one field here that isn't per-language).
+    public var predictionLanguage: LanguageID
+    public var predictionEnabled: Bool
+    public var predictionSuggestionCount: Int
+    public var predictionShowVerbatimSlot: Bool
+    public var predictionPreferZWNJForms: Bool
+    public var toolbarMode: ToolbarMode
+
+    public init(settings: KeyboardSettings, orientation: SizeOrientation, language: LanguageID = .fa) {
         let profile = settings.size.profile(for: orientation)
         rowHeight = profile.rowHeight
         bottomLift = profile.bottomLift
@@ -59,6 +69,13 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
         clipboardShowChip = settings.clipboard.showChip
         clipboardSkipSensitive = settings.clipboard.skipSensitive
         clipboardCaptureImages = settings.clipboard.captureImages
+        predictionLanguage = language
+        let prediction = settings.prediction[language]
+        predictionEnabled = prediction.enabled
+        predictionSuggestionCount = prediction.suggestionCount
+        predictionShowVerbatimSlot = prediction.showVerbatimSlot
+        predictionPreferZWNJForms = prediction.preferZWNJForms
+        toolbarMode = settings.toolbar.mode
     }
 
     /// §6.3.7's "Reset size" safety net — a snapshot built from
@@ -102,6 +119,22 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
         settings.clipboard.showChip = clipboardShowChip
         settings.clipboard.skipSensitive = clipboardSkipSensitive
         settings.clipboard.captureImages = clipboardCaptureImages
+        settings.prediction.setSettings(for: predictionLanguage) { prediction in
+            prediction.enabled = predictionEnabled
+            prediction.suggestionCount = predictionSuggestionCount
+            prediction.showVerbatimSlot = predictionShowVerbatimSlot
+            prediction.preferZWNJForms = predictionPreferZWNJForms
+        }
+        settings.toolbar.mode = toolbarMode
+    }
+}
+
+public extension PredictionLanguageSettings {
+    mutating func setSettings(for language: LanguageID, _ transform: (inout PredictionSettings) -> Void) {
+        switch language {
+        case .fa: transform(&fa)
+        case .en: transform(&en)
+        }
     }
 }
 

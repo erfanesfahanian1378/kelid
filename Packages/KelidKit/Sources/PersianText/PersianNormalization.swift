@@ -14,6 +14,17 @@ public enum PersianNormalization {
     private static let zwnjScalar: Unicode.Scalar = "\u{200C}"
     private static let zwjScalar: Unicode.Scalar = "\u{200D}"
 
+    /// Whether `text` contains a ZWNJ anywhere — at the **Unicode scalar**
+    /// level, not `String.contains(Character)`/grapheme level. ZWNJ fuses
+    /// with the preceding letter into a single `Character` (e.g. "می‌خواهم"
+    /// has no standalone ZWNJ *grapheme cluster* to find), so
+    /// `text.contains("\u{200C}")` silently returns `false` even when a
+    /// ZWNJ is present — the same landmine `WordCharacters`/`InputProcessor`
+    /// already work around by operating on `.unicodeScalars` directly.
+    public static func containsZWNJ(_ text: String) -> Bool {
+        text.unicodeScalars.contains(zwnjScalar)
+    }
+
     private static let arabicIndicToPersianDigit: [Unicode.Scalar: Unicode.Scalar] = [
         "\u{0660}": "\u{06F0}", "\u{0661}": "\u{06F1}", "\u{0662}": "\u{06F2}", "\u{0663}": "\u{06F3}",
         "\u{0664}": "\u{06F4}", "\u{0665}": "\u{06F5}", "\u{0666}": "\u{06F6}", "\u{0667}": "\u{06F7}",

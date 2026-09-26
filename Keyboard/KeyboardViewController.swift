@@ -5,6 +5,7 @@ import KelidSettings
 import KelidStorage
 import KeyboardLayout
 import KeyboardUI
+import PredictionEngine
 import SwiftUI
 import UIKit
 
@@ -136,6 +137,7 @@ final class KeyboardViewController: UIInputViewController {
             orientation: orientation,
             screenHeight: screenHeight(for: orientation),
             clipboardService: makeClipboardService(),
+            suggestionService: SuggestionService(),
             documentProvider: { document }
         )
         newController.onNextInputMode = { [weak self] in self?.advanceToNextInputMode() }
