@@ -88,6 +88,72 @@ struct RankerTests {
     func rankerConfigPersonalWeightDefaultsToZero() {
         #expect(RankerConfig().personalWeight == 0)
     }
+
+    // MARK: - Task 9.4: personal blending
+
+    @Test("rank(completions:) blends S_lang and S_user exactly per §6.7.5's formula when personalWeight > 0")
+    func rankCompletionsBlendsWithPersonalScore() throws {
+        // A single word at 100% of the vocabulary -> log10Probability == 0
+        // (S_lang == 1.0 exactly), so the blend's arithmetic is easy to
+        // hand-verify: blended = 0.5*0.2 + 0.5*1.0 = 0.6.
+        let lexicon = try makeTestLexicon(unigrams: [UnigramEntry(surface: "hello", count: 100)])
+        let completions = lexicon.completions(prefixKey: "hello", limit: 10)
+        let config = RankerConfig(personalWeight: 0.5)
+        let ranked = Ranker.rank(
+            completions: completions,
+            typedKey: "hello",
+            lexicon: lexicon,
+            personalScores: ["hello": 0.2],
+            config: config
+        )
+        let expected = log10(0.6) + 0.15 // + §6.7.5's exact-match bonus (candidateKey == typedKey)
+        #expect(abs(ranked[0].score - expected) < 0.0001)
+    }
+
+    @Test("personalWeight = 0 (the default) never even looks at personalScores, matching the pre-Phase-9 score exactly")
+    func zeroPersonalWeightIgnoresPersonalScores() throws {
+        let lexicon = try makeTestLexicon(unigrams: [UnigramEntry(surface: "hello", count: 100)])
+        let completions = lexicon.completions(prefixKey: "hello", limit: 10)
+        let withoutPersonalScores = Ranker.rank(completions: completions, typedKey: "hello", lexicon: lexicon)
+        // A poisoned value that would visibly change the score if it were
+        // ever read — proves λ=0 short-circuits before touching it.
+        let withPoisonedPersonalScores = Ranker.rank(
+            completions: completions, typedKey: "hello", lexicon: lexicon, personalScores: ["hello": 999],
+            config: RankerConfig(personalWeight: 0)
+        )
+        #expect(withoutPersonalScores[0].score == withPoisonedPersonalScores[0].score)
+    }
+
+    @Test("rank(personalOnly:) scores a language-model-unknown word purely from S_user (S_lang = 0)")
+    func rankPersonalOnlyUsesOnlyPersonalScore() throws {
+        let lexicon = try makeTestLexicon(unigrams: [UnigramEntry(surface: "hello", count: 100)]) // unrelated to "newword"
+        let config = RankerConfig(personalWeight: 0.5)
+        let ranked = Ranker.rank(
+            personalOnly: [(surface: "newword", editCost: 0)], typedKey: "newword", lexicon: lexicon,
+            personalScores: ["newword": 0.3], config: config
+        )
+        let expected = log10(0.5 * 0.3) + 0.15 // S_lang term drops out entirely (0.5 * 0 == 0) + exact-match bonus
+        #expect(abs(ranked[0].score - expected) < 0.0001)
+    }
+
+    @Test("blendedNextWordScore matches §6.7.5's formula exactly")
+    func blendedNextWordScoreMatchesFormula() {
+        let config = RankerConfig(personalWeight: 0.6)
+        let score = Ranker.blendedNextWordScore(surface: "foo", log10LanguageScore: -1.0, personalScores: ["foo": 0.4], config: config)
+        let expected = log10(0.6 * 0.4 + 0.4 * 0.1) // S_lang = 10^-1.0 = 0.1
+        #expect(abs(score - expected) < 0.0001)
+    }
+
+    @Test("blendedNextWordScore returns the language score unchanged when personalWeight is 0")
+    func blendedNextWordScoreNoOpAtZeroWeight() {
+        let score = Ranker.blendedNextWordScore(
+            surface: "foo",
+            log10LanguageScore: -1.0,
+            personalScores: ["foo": 999],
+            config: RankerConfig()
+        )
+        #expect(score == -1.0)
+    }
 }
 
 private func makeTestLexicon(unigrams: [UnigramEntry]) throws -> Lexicon {

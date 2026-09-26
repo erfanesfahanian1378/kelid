@@ -11,10 +11,19 @@
                 dismissQuickSettings()
             } else {
                 state.mode = .quickSettings
-                onPresentQuickSettings?(
-                    QuickSettingsSnapshot(settings: settings, orientation: currentOrientation, language: state.language),
-                    QuickSettingsSnapshot.deviceDefaults(orientation: currentOrientation, deviceDefaultRowHeight: deviceDefaultRowHeight)
+                let currentSnapshot = QuickSettingsSnapshot(settings: settings, orientation: currentOrientation, language: state.language)
+                let resetDefaults = QuickSettingsSnapshot.deviceDefaults(
+                    orientation: currentOrientation, deviceDefaultRowHeight: deviceDefaultRowHeight
                 )
+                let incognito = state.incognito
+                let language = state.language
+                // Task 9.10: the personal-word count is an async round trip
+                // to `SuggestionService` — the panel opens once it's ready
+                // rather than presenting with a stale/placeholder count.
+                Task { [weak self, suggestionService] in
+                    let count = await suggestionService.personalWordCount(for: language)
+                    self?.onPresentQuickSettings?(currentSnapshot, resetDefaults, incognito, count)
+                }
             }
         }
 

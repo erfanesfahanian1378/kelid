@@ -76,11 +76,18 @@ public enum Panel: Sendable, Equatable {
     case resize
 }
 
-/// Placeholder — Phase 7/8 give this real fields (text, source, score...).
 public struct Suggestion: Sendable, Equatable {
     public let text: String
+    /// Task 9.3: whether this was specifically the verbatim slot (§6.7.6's
+    /// "tapped verbatim" increment, 2.0 — not the ordinary "accepted
+    /// suggestion" 1.0) — `KeyboardUI` sets this from `ToolbarStripView`'s
+    /// own slot metadata, since `InputProcessor` has no way to tell the two
+    /// apart from the text alone (a regular candidate can coincidentally
+    /// equal the typed text too, e.g. when it's already a known word).
+    public let isVerbatim: Bool
 
-    public init(text: String) {
+    public init(text: String, isVerbatim: Bool = false) {
         self.text = text
+        self.isVerbatim = isVerbatim
     }
 }

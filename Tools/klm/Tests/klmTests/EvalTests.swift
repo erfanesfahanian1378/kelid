@@ -177,4 +177,46 @@ struct EvalTests {
         #expect(a.next() == b.next())
         #expect(a.next() == b.next())
     }
+
+    // MARK: - Personalization (task 9.11)
+
+    @Test("hybrid KSR beats language-only KSR on eval-half sentences repeating a word the LM ranks low")
+    func personalizedKSRBeatsLanguageOnly() async throws {
+        // "target" shares its first 3 letters with 5 higher-frequency
+        // competitors, so it never makes the raw top-3 completions at any
+        // prefix length short of the full word — language-only KSR pays the
+        // full cost of typing it out. `S_user` here is unigram-only (no
+        // bigram/trigram context in a single-word sentence), so it's itself
+        // Stupid-Backoff-discounted by 0.16× (§6.7.3's shape, reused by
+        // `S_user` per §6.7.5) — hand-computed against that: repeating
+        // "target" 63 times means ~31 land in the training half (63/2,
+        // floored), giving P_uni(target) ≈ 31/(31+50) ≈ 0.383, so
+        // `S_user` ≈ 0.16×0.383 ≈ 0.0612. At `personalWeight = 0.9`,
+        // blended = 0.9×0.0612 + 0.1×(1/1502) ≈ 0.0551, clearing every
+        // competitor's own 0.1×(rawShare) term (tarpit's is the largest,
+        // 0.1×(500/1502) ≈ 0.0333) — enough margin that "target" should
+        // rank #1 among the 6 once trained, not just squeak into top-3.
+        let lexicon = try Self.makeLexicon([
+            UnigramEntry(surface: "target", count: 1),
+            UnigramEntry(surface: "tarpit", count: 500),
+            UnigramEntry(surface: "tarball", count: 400),
+            UnigramEntry(surface: "tarnish", count: 300),
+            UnigramEntry(surface: "tartrail", count: 200),
+            UnigramEntry(surface: "tarheel", count: 100),
+        ])
+        let sentences = Array(repeating: ["target"], count: 63)
+        let metrics = await Eval.runWithPersonalization(lexicon: lexicon, sentences: sentences, personalWeight: 0.9)
+        #expect(metrics.trainSentenceCount == 31)
+        #expect(metrics.evalSentenceCount == 32)
+        #expect(metrics.hybridKSR > metrics.languageOnlyKSR)
+    }
+
+    @Test("runWithPersonalization splits the corpus exactly in half")
+    func runWithPersonalizationSplitsInHalf() async throws {
+        let lexicon = try Self.makeLexicon([UnigramEntry(surface: "cat", count: 100)])
+        let sentences = (0 ..< 10).map { _ in ["cat"] }
+        let metrics = await Eval.runWithPersonalization(lexicon: lexicon, sentences: sentences)
+        #expect(metrics.trainSentenceCount == 5)
+        #expect(metrics.evalSentenceCount == 5)
+    }
 }

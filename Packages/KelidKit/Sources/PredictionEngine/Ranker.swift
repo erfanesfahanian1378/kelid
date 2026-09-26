@@ -1,3 +1,4 @@
+import Foundation
 import PersianText
 
 /// §6.7.5's scoring constants. All tuned properly in Phase 8 with the eval
@@ -49,9 +50,10 @@ public enum Ranker {
         completions: [LexiconCompletion],
         typedKey: String,
         lexicon: Lexicon,
+        personalScores: [String: Double] = [:],
         config: RankerConfig = RankerConfig()
     ) -> [RankedSuggestion] {
-        let context = ScoringContext(typedKey: typedKey, lexicon: lexicon, config: config)
+        let context = ScoringContext(typedKey: typedKey, lexicon: lexicon, config: config, personalScores: personalScores)
         // Phase 7's completions are always exact-prefix matches — a real
         // (nonzero) edit cost only shows up once fuzzy search (Phase 8)
         // contributes candidates through `rank(fuzzy:...)` below.
@@ -69,11 +71,43 @@ public enum Ranker {
         fuzzy: [FuzzyMatch],
         typedKey: String,
         lexicon: Lexicon,
+        personalScores: [String: Double] = [:],
         config: RankerConfig = RankerConfig()
     ) -> [RankedSuggestion] {
-        let context = ScoringContext(typedKey: typedKey, lexicon: lexicon, config: config)
+        let context = ScoringContext(typedKey: typedKey, lexicon: lexicon, config: config, personalScores: personalScores)
         let ranked = fuzzy.map { score(wordID: $0.wordID, surface: $0.surface, editCost: $0.editCost, context: context) }
         return ranked.sorted { $0.score == $1.score ? $0.wordID < $1.wordID : $0.score > $1.score }
+    }
+
+    /// Task 9.4: candidates that exist *only* in the personal model (a
+    /// genuinely new word the base language model has never seen) — no
+    /// `wordID` to look up a language-model score for, so `S_lang` is
+    /// simply `0` in §6.7.5's blend (`S(w|ctx) = λ·S_user + (1−λ)·0`).
+    /// `lexicon` is still needed for `ScoringContext`'s shape even though
+    /// this path never reads a language-model score from it.
+    public static func rank(
+        personalOnly candidates: [(surface: String, editCost: Double)],
+        typedKey: String,
+        lexicon: Lexicon,
+        personalScores: [String: Double],
+        config: RankerConfig = RankerConfig()
+    ) -> [RankedSuggestion] {
+        let context = ScoringContext(typedKey: typedKey, lexicon: lexicon, config: config, personalScores: personalScores)
+        let ranked = candidates.map { score(wordID: nil, surface: $0.surface, editCost: $0.editCost, context: context) }
+        return ranked.sorted { $0.score == $1.score ? $0.wordID < $1.wordID : $0.score > $1.score }
+    }
+
+    /// Task 9.4: re-blends an already-computed next-word candidate score
+    /// (§6.7.3's Stupid Backoff, no channel/completion/bonus terms —
+    /// there's no typed text to match against for an empty prefix) with
+    /// `UserModel`'s own `S_user` for the same surface.
+    public static func blendedNextWordScore(
+        surface: String,
+        log10LanguageScore: Double,
+        personalScores: [String: Double],
+        config: RankerConfig
+    ) -> Double {
+        blend(log10LanguageScore: log10LanguageScore, surface: surface, personalScores: personalScores, config: config)
     }
 
     /// Groups `rank`'s shared, per-call-invariant inputs so `score(...)`
@@ -82,17 +116,48 @@ public enum Ranker {
         let typedKey: String
         let lexicon: Lexicon
         let config: RankerConfig
+        let personalScores: [String: Double]
     }
 
-    private static func score(wordID: UInt32, surface: String, editCost: Double, context: ScoringContext) -> RankedSuggestion {
-        let log10LanguageScore = context.lexicon.log10Probability(wordID)
+    /// `wordID` is `nil` for a personal-only candidate the base language
+    /// model has never seen (`rank(personalOnly:...)`) — `RankedSuggestion`
+    /// still needs *some* `UInt32` (used only for sort tie-breaking and as
+    /// an internal merge key elsewhere; `matchKey` is what actually
+    /// identifies a word once personal candidates are in the mix), so this
+    /// substitutes `UInt32.max` rather than a real language-model id.
+    private static func score(wordID: UInt32?, surface: String, editCost: Double, context: ScoringContext) -> RankedSuggestion {
+        let log10LanguageScore = wordID.map { context.lexicon.log10Probability($0) }
         let candidateKey = PersianNormalization.matchKey(surface)
         let log10Channel = -context.config.gamma * editCost
         let lengthDifference = min(max(candidateKey.count - context.typedKey.count, 0), context.config.completionLengthCap)
         let log10Completion = -context.config.completionLengthPenalty * Double(lengthDifference)
         let exactBonus = candidateKey == context.typedKey ? context.config.exactMatchBonus : 0
-        let total = log10LanguageScore + log10Channel + log10Completion + exactBonus
-        return RankedSuggestion(wordID: wordID, surface: surface, score: total)
+        let blendedLog10Score = blend(
+            log10LanguageScore: log10LanguageScore,
+            surface: surface,
+            personalScores: context.personalScores,
+            config: context.config
+        )
+        let total = blendedLog10Score + log10Channel + log10Completion + exactBonus
+        return RankedSuggestion(wordID: wordID ?? UInt32.max, surface: surface, score: total)
+    }
+
+    /// §6.7.5's `S(w|ctx) = λ·S_user + (1−λ)·S_lang`, in linear probability
+    /// space (both source scores are stored/computed as log10). `λ = 0`
+    /// (the default until a personal-source mode is active) returns
+    /// `log10LanguageScore` completely unchanged — task 8.5/8.6's existing,
+    /// already-tested behavior — without ever touching `personalScores` or
+    /// doing the `pow`/`log10` round trip.
+    private static func blend(log10LanguageScore: Double?, surface: String, personalScores: [String: Double],
+                              config: RankerConfig) -> Double
+    {
+        guard config.personalWeight > 0 else {
+            return log10LanguageScore ?? -700 // no language-model score and no personal blending: unreachable in practice
+        }
+        let sUser = personalScores[PersianNormalization.matchKey(surface)] ?? 0
+        let sLang = log10LanguageScore.map { pow(10, $0) } ?? 0
+        let blended = config.personalWeight * sUser + (1 - config.personalWeight) * sLang
+        return log10(max(blended, .leastNormalMagnitude))
     }
 
     /// §6.7.5's dedupe rule: collapse candidates that are really the same

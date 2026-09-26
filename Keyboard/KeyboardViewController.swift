@@ -83,12 +83,15 @@ final class KeyboardViewController: UIInputViewController {
         controller.updateMetrics(currentMetrics(), orientation: orientation, screenHeight: screenHeight(for: orientation))
         controller.fieldTraitsDidChange()
         controller.startClipboardPolling() // task 5.4, §6.5.2 — only while visible
+        controller.startUserModelFlushTimer() // task 9.2, §6.7.6 — only while visible
+        refreshSupplementaryLexiconIfNeeded(controller)
         refreshDebugOverlay()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         controller?.stopClipboardPolling()
+        controller?.stopUserModelFlushTimer() // also flushes once immediately, §6.7.6's "disappear" trigger
         suspendServices()
     }
 
@@ -138,6 +141,7 @@ final class KeyboardViewController: UIInputViewController {
             screenHeight: screenHeight(for: orientation),
             clipboardService: makeClipboardService(),
             suggestionService: SuggestionService(),
+            userModelDatabase: services.database,
             documentProvider: { document }
         )
         newController.onNextInputMode = { [weak self] in self?.advanceToNextInputMode() }
@@ -153,12 +157,19 @@ final class KeyboardViewController: UIInputViewController {
             self?.presentOverlay(UIHostingController(rootView: view))
         }
         newController.onDismissResizeOverlay = { [weak self] in self?.dismissOverlay() }
-        newController.onPresentQuickSettings = { [weak self, weak newController] snapshot, resetDefaults in
+        newController.onPresentQuickSettings = { [weak self, weak newController] snapshot, resetDefaults, incognito, personalWordCount in
             let view = QuickSettingsView(
                 snapshot: snapshot,
                 resetSizeDefaults: resetDefaults,
+                incognito: incognito,
+                personalWordCount: personalWordCount,
                 onChange: { updated in newController?.applyQuickSettingsChange(updated) },
                 onResizeVisually: { newController?.requestResizeFromQuickSettings() },
+                onToggleIncognito: { newController?.toggleIncognito() },
+                onClearLearnedWords: {
+                    guard let newController else { return }
+                    newController.clearLearnedWords(for: newController.state.language)
+                },
                 onDone: { newController?.toggleQuickSettings() }
             )
             self?.presentOverlay(UIHostingController(rootView: view))
@@ -172,6 +183,16 @@ final class KeyboardViewController: UIInputViewController {
             self?.presentOverlay(UIHostingController(rootView: EditPanelView(model: model)))
         }
         newController.onDismissEditPanel = { [weak self] in self?.dismissOverlay() }
+        newController.onPresentSuggestionMenu = { [weak self] word, onDontSuggest, onForget, onCancel in
+            let view = SuggestionMenuView(
+                word: word,
+                onDontSuggest: { onDontSuggest(); self?.dismissOverlay() },
+                onForget: { onForget(); self?.dismissOverlay() },
+                onCancel: { onCancel(); self?.dismissOverlay() }
+            )
+            self?.presentOverlay(UIHostingController(rootView: view))
+        }
+        newController.onDismissSuggestionMenu = { [weak self] in self?.dismissOverlay() }
         controller = newController
         installRootView(newController.rootView)
         return newController
@@ -279,8 +300,18 @@ final class KeyboardViewController: UIInputViewController {
         services.hasFullAccess = hasFullAccess
         services.settings.load()
         controller?.updateSettings(services.settings.settings)
-        let database = services.database
         Task {
+            // Task 9.9 (§6.11.2): must run before `services.database` is
+            // touched below, so a leftover local personal-model DB (from
+            // sessions before Full Access was granted) is merged into the
+            // shared DB rather than silently left behind. Real iOS
+            // typically restarts the extension process for a Full-Access
+            // grant to take effect at all, so this is effectively always
+            // "the first `resumeServices()` call of a fresh process" in
+            // practice — see PROGRESS.md for the narrow same-process-upgrade
+            // race this doesn't fully close.
+            _ = await services.mergeLocalUserModelIfNeeded() // logs its own result; debug overlay reads it separately
+            let database = services.database
             do {
                 try await database.open()
             } catch {
@@ -314,11 +345,13 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func handleHostDidEnterBackground() {
+        controller?.stopUserModelFlushTimer() // also flushes once immediately, §6.7.6's "background" trigger
         suspendServices()
     }
 
     @objc private func handleHostWillEnterForeground() {
         resumeServices()
+        controller?.startUserModelFlushTimer()
     }
 
     // MARK: - §6.3.4 height mechanism
@@ -332,6 +365,56 @@ final class KeyboardViewController: UIInputViewController {
         constraint.priority = UILayoutPriority(999) // stays below "required" so it never fights UIView-Encapsulated-Layout-Height
         constraint.isActive = true
         heightConstraint = constraint
+    }
+
+    // MARK: - Supplementary lexicon (task 9.6, §6.11's C16)
+
+    private static let supplementaryLexiconCacheInterval: TimeInterval = 3600
+
+    /// C16: "custom keyboards ... can read the user's text replacements and
+    /// some contact names through `requestSupplementaryLexicon`." Cached for
+    /// 1 hour (task 9.6) at the `KeyboardServices` (process) level, not per
+    /// `KeyboardViewController` instance, since §2.1 C13 says instances get
+    /// recreated far more often than that.
+    private func refreshSupplementaryLexiconIfNeeded(_ controller: KeyboardController) {
+        let learning = services.settings.settings.learning
+        guard learning.useTextReplacements || learning.useContactNames else { return }
+        if let lastFetch = services.lastSupplementaryLexiconFetchAt,
+           Date().timeIntervalSince(lastFetch) < Self.supplementaryLexiconCacheInterval
+        {
+            return
+        }
+        services.lastSupplementaryLexiconFetchAt = Date()
+        requestSupplementaryLexicon { [weak self, weak controller] lexicon in
+            guard let self, let controller else { return }
+            let (replacements, names) = Self.parseSupplementaryLexicon(lexicon, learning: learning)
+            controller.applySupplementaryLexicon(textReplacements: replacements, contactNames: names)
+        }
+    }
+
+    /// `UILexiconEntry` doesn't itself tag whether a given entry is a text-
+    /// replacement shortcut or a contact/vocabulary name — this tells them
+    /// apart the only way the two are actually structurally different: a
+    /// real text replacement always has `userInput != documentText` (a
+    /// short shortcut expanding to something else), while a name entry
+    /// naturally has both equal to the same string (there's no separate
+    /// "shortcut" for a name, just the name itself). Unverifiable against a
+    /// real device this session — flagged in PROGRESS.md.
+    private static func parseSupplementaryLexicon(
+        _ lexicon: UILexicon, learning: LearningSettings
+    ) -> (replacements: [String: String], names: [String]) {
+        var replacements: [String: String] = [:]
+        var names: [String] = []
+        for entry in lexicon.entries {
+            if entry.userInput != entry.documentText {
+                if learning.useTextReplacements {
+                    replacements[entry.userInput] = entry.documentText
+                }
+            } else if learning.useContactNames {
+                names.append(entry.documentText)
+            }
+        }
+        return (replacements, names)
     }
 
     // MARK: - Debug overlay (task 3.18, `AdvancedSettings.debugOverlay`)
@@ -362,7 +445,11 @@ final class KeyboardViewController: UIInputViewController {
             let dbState = await services.database.state
             let fullAccess = hasFullAccess ? "✓" : "✗"
             let memoryMB = String(format: "%.1f", MemoryProbe.footprintMB())
-            debugLabel.text = "FA \(fullAccess) · DB \(Self.describe(dbState)) · mem \(memoryMB)MB · iOS \(UIDevice.current.systemVersion)"
+            var text = "FA \(fullAccess) · DB \(Self.describe(dbState)) · mem \(memoryMB)MB · iOS \(UIDevice.current.systemVersion)"
+            if let mergeResult = services.lastUserModelMergeResult {
+                text += " · \(mergeResult)"
+            }
+            debugLabel.text = text
         }
     }
 

@@ -5,6 +5,7 @@
     import InputEngine
     import KelidCore
     import KelidSettings
+    import KelidStorage
     import KeyboardLayout
     import PredictionEngine
     import UIKit
@@ -73,7 +74,12 @@
 
         // MARK: - Quick Settings (task 4.6)
 
-        public var onPresentQuickSettings: ((_ current: QuickSettingsSnapshot, _ resetDefaults: QuickSettingsSnapshot) -> Void)?
+        public var onPresentQuickSettings: (
+            (
+                _ current: QuickSettingsSnapshot, _ resetDefaults: QuickSettingsSnapshot, _ incognito: Bool,
+                _ personalWordCount: Int
+            ) -> Void
+        )?
         public var onDismissQuickSettings: (() -> Void)?
 
         /// `UIInputViewController.needsInputModeSwitchKey` — only the host can
@@ -126,6 +132,14 @@
         public var onPresentEditPanel: ((EditPanelModel) -> Void)?
         public var onDismissEditPanel: (() -> Void)?
 
+        // MARK: - Suggestion long-press menu (task 9.5)
+
+        public var onPresentSuggestionMenu: (
+            (_ word: String, _ onDontSuggest: @escaping () -> Void, _ onForget: @escaping () -> Void, _ onCancel: @escaping () -> Void)
+                -> Void
+        )?
+        public var onDismissSuggestionMenu: (() -> Void)?
+
         // MARK: - Prediction (Phase 7, implementation in +Suggestions.swift)
 
         let suggestionService: SuggestionService
@@ -139,6 +153,15 @@
         /// doesn't depend on `EmojiData`) — `requestSuggestions()` merges
         /// its result into `SuggestionResult.emoji` itself.
         let emojiSuggester = EmojiSuggester()
+        /// Task 9.1/9.2: the same `DatabaseManager` `makeClipboardService()`'s
+        /// `ClipRepository` uses — one `UserModelRepository` per language is
+        /// built from it in `loadPredictionModels()`.
+        let userModelDatabase: DatabaseManager
+        /// Task 9.2's write-behind flush (5s) — started in `init`, stopped
+        /// never (this controller's whole lifetime is one typing session);
+        /// `internal`, not `private`, so `KeyboardController+Suggestions.swift`
+        /// can invalidate/reference it if a future phase needs to.
+        var userModelFlushTimer: Timer?
 
         public init(
             settings: KeyboardSettings,
@@ -148,6 +171,7 @@
             layoutRepository: LayoutRepository = .shared,
             clipboardService: ClipboardService,
             suggestionService: SuggestionService,
+            userModelDatabase: DatabaseManager,
             documentProvider: @escaping () -> TextDocument
         ) {
             self.settings = settings
@@ -158,6 +182,7 @@
             self.layoutRepository = layoutRepository
             self.clipboardService = clipboardService
             self.suggestionService = suggestionService
+            self.userModelDatabase = userModelDatabase
             self.documentProvider = documentProvider
             inputProcessor = InputProcessor(
                 settings: InputSettings(settings.general, clipSmartSpacing: settings.clipboard.smartSpacing),
@@ -166,12 +191,14 @@
             )
             super.init()
             state.language = settings.general.enabledLanguages.first ?? .fa
+            state.incognito = settings.learning.incognito
             rootView.keyGridView.delegate = self
             rootView.toolbarStrip.onTapResize = { [weak self] in self?.startResizeMode() }
             rootView.toolbarStrip.onTapSettings = { [weak self] in self?.toggleQuickSettings() }
             rootView.toolbarStrip.onTapClipboard = { [weak self] in self?.toggleClipboardPanel() }
             rootView.toolbarStrip.onTapEdit = { [weak self] in self?.toggleEditPanel() }
             rootView.toolbarStrip.onTapLabel = { [weak self] in self?.tapClipChip() }
+            rootView.toolbarStrip.onTapIncognito = { [weak self] in self?.toggleIncognito() }
             observeToolbarText()
             observeSuggestions()
             wireSuggestionBar()
@@ -336,8 +363,8 @@
                     requestSuggestions()
                 case .feedback:
                     break // driven directly by touch events (see KeyGridViewDelegate conformance), not this effect
-                case .learn:
-                    break // Phase 9
+                case let .learn(event):
+                    handleLearn(event)
                 case .autocorrected:
                     // No UI reaction needed yet: `.requestSuggestions` (also
                     // emitted by `applyAutocorrect`) already refreshes the

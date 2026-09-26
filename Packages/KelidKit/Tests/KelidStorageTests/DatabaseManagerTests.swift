@@ -8,7 +8,11 @@ import Testing
 // different `DatabasePool`s were observed to interfere with each other.
 @Suite("DatabaseManager", .serialized)
 struct DatabaseManagerTests {
-    private func tempDatabaseURL() -> URL {
+    /// `internal` (not `private`): `UserModelRepositoryTests.swift` (an
+    /// extension of this same type, in a separate file — see its own doc
+    /// comment for why) calls this too. Swift's `private` is file-scoped
+    /// even across extensions of the same type.
+    func tempDatabaseURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("kelid-test-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("test.sqlite")
@@ -120,5 +124,57 @@ struct DatabaseManagerTests {
             try String.fetchOne(db, sql: "SELECT text FROM clip WHERE uuid = ?", arguments: ["u1"])
         }
         #expect(storedText == "hello")
+    }
+
+    @Test("open() also runs the v1_user_model migration (task 9.1, §6.11.3)")
+    func openCreatesUserModelTables() async throws {
+        let url = tempDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let manager = DatabaseManager(fileURL: url)
+        try await manager.open()
+
+        let tables = try await manager.read { db -> [Bool] in
+            try [
+                db.tableExists("user_word"),
+                db.tableExists("user_bigram"),
+                db.tableExists("user_trigram"),
+                db.tableExists("user_correction_block"),
+            ]
+        }
+        #expect(tables == [true, true, true, true])
+
+        // Round-trip inserts that exercise the real constraints, not just
+        // "the table exists": UNIQUE(lang, surface) on user_word, and the
+        // WITHOUT ROWID composite primary keys on the n-gram tables.
+        try await manager.write { db in
+            try db.execute(
+                sql: "INSERT INTO user_word (lang, surface, matchKey, count, lastUsedAt, firstSeenAt) VALUES (?, ?, ?, ?, ?, ?)",
+                arguments: ["fa", "سلام", "سلام", 1.0, 1000, 1000]
+            )
+            try db.execute(
+                sql: "INSERT INTO user_bigram (lang, w1, w2, count, lastUsedAt) VALUES (?, ?, ?, ?, ?)",
+                arguments: ["fa", "سلام", "دوست", 1.0, 1000]
+            )
+            try db.execute(
+                sql: "INSERT INTO user_trigram (lang, w1, w2, w3, count, lastUsedAt) VALUES (?, ?, ?, ?, ?, ?)",
+                arguments: ["fa", "سلام", "دوست", "من", 1.0, 1000]
+            )
+            try db.execute(
+                sql: "INSERT INTO user_correction_block (lang, typed, corrected, createdAt) VALUES (?, ?, ?, ?)",
+                arguments: ["en", "teh", "the", 1000]
+            )
+        }
+        let wordCount = try await manager.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM user_word") }
+        #expect(wordCount == 1)
+
+        // A duplicate (lang, surface) must be rejected by the UNIQUE constraint.
+        await #expect(throws: (any Error).self) {
+            try await manager.write { db in
+                try db.execute(
+                    sql: "INSERT INTO user_word (lang, surface, matchKey, count, lastUsedAt, firstSeenAt) VALUES (?, ?, ?, ?, ?, ?)",
+                    arguments: ["fa", "سلام", "سلام", 2.0, 2000, 2000]
+                )
+            }
+        }
     }
 }

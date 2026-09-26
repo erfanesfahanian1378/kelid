@@ -234,7 +234,20 @@ public struct Lexicon: Sendable {
                     results.append(FuzzyMatch(wordID: id, surface: file.surface(id), score: file.score(id), editCost: costAtFullLength))
                 }
             }
-            if prefixMode, node.hasChildren, withinBudget {
+            // `item.nodeIndex != 0` excludes the untouched root: its row is
+            // always exactly `[0, 1, 2, ..., typed.count]` (pure insertion,
+            // using none of the typed characters at all), so for a short
+            // typed key (`typed.count <= maxCost`) it's trivially "within
+            // budget" regardless of what was actually typed. Any candidate
+            // this would surface is already found (with a real, typed-
+            // character-informed cost) via each depth-1 child's own
+            // substitution path — every single-character substitution costs
+            // exactly `1.0` generically, so a short typed key already
+            // explores every first letter's own best completions on its
+            // own. Skipping the root just avoids a redundant `bestCompletions`
+            // search over the *entire* trie (a real, if usually invisible,
+            // performance cost) on top of that.
+            if prefixMode, item.nodeIndex != 0, node.hasChildren, withinBudget {
                 // A completion penalty (§6.7.5's own "mild preference for
                 // shorter completions" idea, reapplied here at 0.1/char so
                 // fuzzy-prefix hits don't outrank exact fuzzy matches).

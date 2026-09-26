@@ -1,4 +1,5 @@
 import Dispatch
+import KelidCore
 import PersianText
 import PredictionEngine
 
@@ -174,6 +175,178 @@ enum Eval {
         guard !sorted.isEmpty else { return 0 }
         let index = Int((Double(sorted.count - 1) * p).rounded())
         return sorted[index]
+    }
+
+    // MARK: - Personalization (task 9.11)
+
+    struct PersonalizationMetrics {
+        var trainSentenceCount: Int
+        var evalSentenceCount: Int
+        var languageOnlyKSR: Double
+        var hybridKSR: Double
+    }
+
+    /// "Simulate learning from half of `fa_informal` and measure KSR on the
+    /// other half, hybrid vs language-only." The first half's words feed a
+    /// real `UserModel` via `recordCommit(source: .typed)`, exactly as if
+    /// the user had actually typed and committed every one of them; the
+    /// second half is then scored twice — once with plain `Lexicon.completions`
+    /// (`languageOnlyKSR`, identical math to `keystrokeSavingsRate` above)
+    /// and once with `S = λ·S_user + (1−λ)·S_lang`-blended completions
+    /// (`hybridKSR`) — so the delta between the two isolates exactly what
+    /// personalization bought on genuinely unseen-by-this-measurement text.
+    static func runWithPersonalization(
+        lexicon: Lexicon, sentences: [[String]], personalWeight: Double = 0.6
+    ) async -> PersonalizationMetrics {
+        let splitIndex = sentences.count / 2
+        let trainSentences = Array(sentences.prefix(splitIndex))
+        let evalSentences = Array(sentences.suffix(sentences.count - splitIndex))
+
+        let store = InMemoryUserModelStore()
+        let userModel = UserModel(language: .fa, store: store)
+        for words in trainSentences {
+            var previousWords: [String] = []
+            for word in words {
+                let matchKey = PersianNormalization.matchKey(word)
+                guard !matchKey.isEmpty else { continue }
+                await userModel.recordCommit(
+                    surface: word, matchKey: matchKey, source: .typed, previousWords: previousWords, learnPhrases: true
+                )
+                previousWords.append(word)
+                if previousWords.count > 2 {
+                    previousWords.removeFirst()
+                }
+            }
+        }
+        let languageOnlyKSR = keystrokeSavingsRate(lexicon: lexicon, sentences: evalSentences)
+        let hybridKSR = await keystrokeSavingsRateHybrid(
+            lexicon: lexicon, userModel: userModel, sentences: evalSentences, personalWeight: personalWeight
+        )
+        return PersonalizationMetrics(
+            trainSentenceCount: trainSentences.count, evalSentenceCount: evalSentences.count,
+            languageOnlyKSR: languageOnlyKSR, hybridKSR: hybridKSR
+        )
+    }
+
+    /// Same simulation as `keystrokeSavingsRate`, but the 3 visible slots
+    /// are chosen by `S(w|ctx) = λ·S_user + (1−λ)·S_lang` (§6.7.5/§6.7.7),
+    /// not raw language-model frequency alone — `Ranker.rank(completions:...)`
+    /// is the exact same blending code `SuggestionService` itself uses.
+    private static func keystrokeSavingsRateHybrid(
+        lexicon: Lexicon, userModel: UserModel, sentences: [[String]], personalWeight: Double
+    ) async -> Double {
+        var naiveTotal = 0
+        var actualTotal = 0
+        let rankerConfig = RankerConfig(personalWeight: personalWeight)
+        for words in sentences {
+            var previousWords: [String] = []
+            for word in words {
+                let key = PersianNormalization.matchKey(word)
+                guard !key.isEmpty else { continue }
+                naiveTotal += key.count + 1
+                let w1: String? = previousWords.count >= 2 ? previousWords[previousWords.count - 2] : nil
+                let w2 = previousWords.last
+                var accepted = false
+                for prefixLength in 0 ..< key.count {
+                    let prefixKey = String(key.prefix(prefixLength))
+                    let completions = lexicon.completions(prefixKey: prefixKey, limit: 32)
+                    var personalScores: [String: Double] = [:]
+                    for completion in completions {
+                        personalScores[PersianNormalization.matchKey(completion.surface)] = await userModel.stupidBackoffScore(
+                            word: completion.surface, w1: w1, w2: w2
+                        )
+                    }
+                    let ranked = Ranker.rank(
+                        completions: completions, typedKey: prefixKey, lexicon: lexicon, personalScores: personalScores,
+                        config: rankerConfig
+                    )
+                    let top3 = ranked.sorted { $0.score > $1.score }.prefix(3)
+                    if top3.contains(where: { PersianNormalization.matchKey($0.surface) == key }) {
+                        actualTotal += prefixLength + 1
+                        accepted = true
+                        break
+                    }
+                }
+                if !accepted {
+                    actualTotal += key.count + 1
+                }
+                previousWords.append(word)
+                if previousWords.count > 2 {
+                    previousWords.removeFirst()
+                }
+            }
+        }
+        guard naiveTotal > 0 else { return 0 }
+        return 1 - Double(actualTotal) / Double(naiveTotal)
+    }
+}
+
+/// A minimal, process-local `UserModelStore` for `runWithPersonalization`'s
+/// simulation — `klm` has no database at all (§4.2: it doesn't depend on
+/// `KelidStorage`), and this eval run never needs to persist anything
+/// beyond its own process lifetime anyway, so an in-memory `actor` is the
+/// simplest thing that satisfies the protocol.
+actor InMemoryUserModelStore: UserModelStore {
+    private var words: [String: UserModelWordRecord] = [:]
+    private var bigrams: [String: UserModelBigramRecord] = [:]
+    private var trigrams: [String: UserModelTrigramRecord] = [:]
+    private var blocked: Set<String> = []
+    private var blockedCorrections: Set<UserModelBlockedCorrection> = []
+
+    func loadWords(limit: Int) async throws -> [UserModelWordRecord] {
+        Array(words.values.prefix(limit))
+    }
+
+    func loadBigrams(limit: Int) async throws -> [UserModelBigramRecord] {
+        Array(bigrams.values.prefix(limit))
+    }
+
+    func loadTrigrams(limit: Int) async throws -> [UserModelTrigramRecord] {
+        Array(trigrams.values.prefix(limit))
+    }
+
+    func loadBlockedWords() async throws -> Set<String> {
+        blocked
+    }
+
+    func loadBlockedCorrections() async throws -> Set<UserModelBlockedCorrection> {
+        blockedCorrections
+    }
+
+    func flush(words: [UserModelWordRecord], bigrams: [UserModelBigramRecord], trigrams: [UserModelTrigramRecord]) async throws {
+        for word in words {
+            self.words[word.surface] = word
+        }
+        for bigram in bigrams {
+            self.bigrams["\(bigram.w1)|\(bigram.w2)"] = bigram
+        }
+        for trigram in trigrams {
+            self.trigrams["\(trigram.w1)|\(trigram.w2)|\(trigram.w3)"] = trigram
+        }
+    }
+
+    func setBlocked(_ blocked: Bool, surface: String) async throws {
+        if blocked {
+            self.blocked.insert(surface)
+        } else {
+            self.blocked.remove(surface)
+        }
+    }
+
+    func forget(surface: String) async throws {
+        words.removeValue(forKey: surface)
+    }
+
+    func blockCorrection(typed: String, corrected: String) async throws {
+        blockedCorrections.insert(UserModelBlockedCorrection(typed: typed, corrected: corrected))
+    }
+
+    func deleteAllWords() async throws {
+        words.removeAll()
+        bigrams.removeAll()
+        trigrams.removeAll()
+        blocked.removeAll()
+        blockedCorrections.removeAll()
     }
 }
 

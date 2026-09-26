@@ -21,6 +21,17 @@ public func isAutocorrectSeparatorCharacter(_ char: Character) -> Bool {
 /// at file scope wouldn't be visible there.
 let sentenceEndCharacters: Set<Character> = [".", "!", "?", "؟", "…"]
 
+/// §6.4.6's autocorrect-revert bookkeeping — a struct (not a tuple) purely
+/// to stay under SwiftLint's `large_tuple` limit; behaviorally this is just
+/// `InputProcessor.lastAutocorrection`'s payload.
+struct PendingAutocorrection {
+    let original: String
+    let corrected: String
+    let separator: String
+    let previousWords: [String]
+    let traits: FieldTraits
+}
+
 /// Implements §6.4.2's contract: character insertion with shift mapping,
 /// page switching, the shift/caps machine and auto-cap (§6.4.3), space and
 /// double-space period, smart punctuation spacing (§6.4.4), ZWNJ rules
@@ -52,7 +63,7 @@ public final class InputProcessor {
     /// by the very next backspace tap if it comes immediately after, and
     /// cleared by any other action in between (mirrors `autoSpacePending`'s
     /// own clearing pattern in `handle(_:in:)`).
-    var lastAutocorrection: (original: String, corrected: String, separator: String)?
+    var lastAutocorrection: PendingAutocorrection?
     /// Not `private`: `InputProcessor+Context.swift` reads this too.
     var currentLanguage: LanguageID
     /// `internal` (not `private`): `InputProcessor+EditActions.swift` (a
@@ -111,12 +122,51 @@ public final class InputProcessor {
             undoStack.removeAll()
         }
 
+        // Captured before this action mutates the document — §6.7.8's
+        // commit triggers learn the word (and its sentence context) as it
+        // stood *before* the separator that committed it, not after.
+        let oldContext = context
+        let (actionEffects, clearsAutoSpace) = performAction(action, in: doc, oldContext: oldContext)
+        var effects = actionEffects
+
+        if clearsAutoSpace, action != .backspace {
+            autoSpacePending = false
+        }
+        // §6.4.6: a revert only fires when backspace comes *immediately*
+        // after the autocorrection — any other action in between invalidates
+        // it. `.backspace` itself is excluded because `performBackspace`
+        // already consumes `lastAutocorrection` for itself (either reverting
+        // it or, if unset, doing a plain delete); `.applyAutocorrect` is
+        // excluded because it's what just *set* `lastAutocorrection` above,
+        // in this very call.
+        switch action {
+        case .backspace, .applyAutocorrect:
+            break
+        default:
+            lastAutocorrection = nil
+        }
+
+        context = computeContext(doc: doc)
+        effects += recomputeAutoCapitalization()
+        return effects
+    }
+
+    /// The `action` dispatch itself, extracted out of `handle(_:in:)` purely
+    /// to keep that function under SwiftLint's `function_body_length` —
+    /// behaviorally this is still the first half of `handle(_:in:)`'s body.
+    /// `clearsAutoSpace` mirrors the caller's own local of the same name.
+    private func performAction(
+        _ action: InputAction, in doc: TextDocument, oldContext: TypingContext
+    ) -> (effects: [InputEffect], clearsAutoSpace: Bool) {
         var effects: [InputEffect] = []
         var clearsAutoSpace = true
 
         switch action {
         case let .character(text):
             effects += insertCharacter(text, in: doc)
+            if text.count == 1, let char = text.first, !oldContext.prefix.isEmpty, !WordCharacters.isWordCharacter(char) {
+                effects += commitTypedWord(oldContext)
+            }
 
         case .zwnj:
             effects += insertZWNJ(in: doc)
@@ -124,6 +174,7 @@ public final class InputProcessor {
         case .space:
             effects += insertSpace(in: doc)
             clearsAutoSpace = false // insertSpace manages the flag itself
+            effects += commitTypedWord(oldContext)
 
         case .backspace:
             effects += performBackspace(in: doc)
@@ -138,6 +189,7 @@ public final class InputProcessor {
             shadowBuffer.recordInsertion("\n")
             effects += resolveShiftAfterInsertion()
             effects.append(.requestSuggestions)
+            effects += commitTypedWord(oldContext)
 
         case .shift:
             effects += handleShiftTap()
@@ -200,26 +252,14 @@ public final class InputProcessor {
             effects.append(.dismissKeyboard)
         }
 
-        if clearsAutoSpace, action != .backspace {
-            autoSpacePending = false
-        }
-        // §6.4.6: a revert only fires when backspace comes *immediately*
-        // after the autocorrection — any other action in between invalidates
-        // it. `.backspace` itself is excluded because `performBackspace`
-        // already consumes `lastAutocorrection` for itself (either reverting
-        // it or, if unset, doing a plain delete); `.applyAutocorrect` is
-        // excluded because it's what just *set* `lastAutocorrection` above,
-        // in this very call.
-        switch action {
-        case .backspace, .applyAutocorrect:
-            break
-        default:
-            lastAutocorrection = nil
-        }
+        return (effects, clearsAutoSpace)
+    }
 
-        context = computeContext(doc: doc)
-        effects += recomputeAutoCapitalization()
-        return effects
+    /// Shared by the `.character`/`.space`/`.returnKey` cases above — §6.7.8's
+    /// commit triggers all fire the same way, just off a different action.
+    private func commitTypedWord(_ oldContext: TypingContext) -> [InputEffect] {
+        guard !oldContext.prefix.isEmpty else { return [] }
+        return commitEffect(word: oldContext.prefix, source: .typed, previousWords: oldContext.previousWords, traits: oldContext.traits)
     }
 
     @discardableResult
@@ -373,7 +413,13 @@ public final class InputProcessor {
             shadowBuffer.recordDeletion(count: toDelete.count)
             doc.insertText(last.original)
             shadowBuffer.recordInsertion(last.original)
-            return []
+            // §6.7.6: "original word after an autocorrect revert 2.0" —
+            // learns the word the user actually meant, not the correction
+            // they just rejected.
+            return commitEffect(
+                word: last.original, source: .revert, previousWords: last.previousWords, traits: last.traits,
+                revertedCorrection: last.corrected
+            )
         }
         doc.deleteBackward()
         shadowBuffer.recordDeletion()
@@ -416,7 +462,11 @@ public final class InputProcessor {
     /// letters check (`isWordCharacter(at:in:)`) needs to see the letter
     /// that comes *after* the apostrophe, which a shrinking copy would
     /// already have removed by the time the walk reaches it.
-    private func wordDeletionCount(_ text: String) -> Int {
+    /// `internal` (not `private`): `InputProcessor+Navigation.swift` (a
+    /// separate file, split out to keep this type's body under SwiftLint's
+    /// `type_body_length`) calls this too — `private` is file-scoped in
+    /// Swift, even across extensions of the same type.
+    func wordDeletionCount(_ text: String) -> Int {
         var end = text.endIndex
         var count = 0
         while end > text.startIndex {
@@ -434,45 +484,8 @@ public final class InputProcessor {
         return count
     }
 
-    // MARK: - Cursor word/line movement (§6.4.9)
-
-    private func wordBoundaryOffset(direction: MoveDirection, in doc: TextDocument) -> Int {
-        switch direction {
-        case .backward:
-            let before = doc.contextBefore ?? shadowBuffer.contents
-            return -wordDeletionCount(before)
-        case .forward:
-            guard let after = doc.contextAfter else { return 0 }
-            var start = after.startIndex
-            var count = 0
-            while start < after.endIndex, after[start] == " " {
-                start = after.index(after: start)
-                count += 1
-            }
-            while start < after.endIndex, WordCharacters.isWordCharacter(at: start, in: after) {
-                start = after.index(after: start)
-                count += 1
-            }
-            return count
-        }
-    }
-
-    private func lineBoundaryOffset(direction: MoveDirection, in doc: TextDocument) -> Int {
-        switch direction {
-        case .backward:
-            let before = doc.contextBefore ?? shadowBuffer.contents
-            if let lastNewline = before.lastIndex(of: "\n") {
-                return -before.distance(from: before.index(after: lastNewline), to: before.endIndex)
-            }
-            return -before.count
-        case .forward:
-            guard let after = doc.contextAfter else { return 0 }
-            if let nextNewline = after.firstIndex(of: "\n") {
-                return after.distance(from: after.startIndex, to: nextNewline)
-            }
-            return after.count
-        }
-    }
+    // Cursor word/line movement (§6.4.9) is implemented in
+    // `InputProcessor+Navigation.swift`.
 
     // MARK: - Shift/caps (§6.4.3)
 
@@ -523,18 +536,7 @@ public final class InputProcessor {
         }
     }
 
-    // MARK: - Language (§6.4.7)
-
-    private func advanceLanguage(enabledLanguages: [LanguageID]) -> [InputEffect] {
-        guard enabledLanguages.count > 1, let index = enabledLanguages.firstIndex(of: currentLanguage) else {
-            return []
-        }
-        let nextIndex = enabledLanguages.index(after: index) == enabledLanguages.endIndex ? enabledLanguages.startIndex : enabledLanguages
-            .index(after: index)
-        currentLanguage = enabledLanguages[nextIndex]
-        return [.languageChanged(currentLanguage)]
-    }
-
-    // Context computation (task 3.5, §6.4.2) is implemented in
-    // `InputProcessor+Context.swift`.
+    // Language advance (§6.4.7) is implemented in
+    // `InputProcessor+Navigation.swift`; context computation (task 3.5,
+    // §6.4.2) is implemented in `InputProcessor+Context.swift`.
 }

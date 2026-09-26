@@ -2,6 +2,13 @@
     import PredictionEngine
     import UIKit
 
+    /// One suggestion bar slot, per §6.7.5's assembly (task 7.8/8.6/9.3).
+    struct SuggestionSlot: Equatable {
+        let text: String
+        let isBold: Bool
+        let isVerbatim: Bool
+    }
+
     /// The strip above the key grid (task 3.8, §6.3.1's `toolbarHeight`).
     /// Shows either the suggestion bar (task 7.8, when there are
     /// suggestions to show) or the clip-chip/toast label plus the
@@ -14,6 +21,12 @@
         private let editButton = UIButton(type: .system)
         private let resizeButton = UIButton(type: .system)
         private let settingsButton = UIButton(type: .system)
+        /// Task 9.7: the incognito toggle — always present alongside the
+        /// other icon buttons (unlike §6.1.4's general `toolbar.items` list,
+        /// this toolbar's icon row isn't yet driven by that setting at all;
+        /// see the existing fixed 4-button row above).
+        private let incognitoButton = UIButton(type: .system)
+        private var isIncognitoActive = false
 
         private let suggestionStack = UIStackView()
         private var suggestionButtons: [UIButton] = []
@@ -52,6 +65,7 @@
         var onTapSettings: (() -> Void)?
         var onTapClipboard: (() -> Void)?
         var onTapEdit: (() -> Void)?
+        var onTapIncognito: (() -> Void)?
         /// The label itself (the clip chip / toast area) — tapping it is
         /// only meaningful while a clip chip is showing; the controller's
         /// `tapClipChip()` already no-ops otherwise.
@@ -87,6 +101,11 @@
             settingsButton.addAction(UIAction { [weak self] _ in self?.onTapSettings?() }, for: .touchUpInside)
             addSubview(settingsButton)
 
+            incognitoButton.setImage(UIImage(systemName: "eye.slash"), for: .normal)
+            incognitoButton.accessibilityLabel = "incognito"
+            incognitoButton.addAction(UIAction { [weak self] _ in self?.onTapIncognito?() }, for: .touchUpInside)
+            addSubview(incognitoButton)
+
             suggestionStack.axis = .horizontal
             suggestionStack.distribution = .fillEqually
             suggestionStack.isHidden = true
@@ -109,7 +128,7 @@
         override func layoutSubviews() {
             super.layoutSubviews()
             let buttonWidth: CGFloat = 32
-            let buttons = [clipboardButton, editButton, resizeButton, settingsButton]
+            let buttons = [clipboardButton, editButton, resizeButton, settingsButton, incognitoButton]
             for (index, button) in buttons.enumerated() {
                 button.frame = CGRect(x: bounds.maxX - buttonWidth * CGFloat(index + 1), y: 0, width: buttonWidth, height: bounds.height)
             }
@@ -131,14 +150,31 @@
         }
 
         func apply(style: KeyStyle) {
-            backgroundColor = style.keyboardBackground
+            backgroundColor = isIncognitoActive ? Self.incognitoTint : style.keyboardBackground
             label.textColor = style.labelColor
             for button in [clipboardButton, editButton, resizeButton, settingsButton] {
                 button.tintColor = style.labelColor
             }
+            incognitoButton.tintColor = isIncognitoActive ? .white : style.labelColor
             for button in suggestionButtons {
                 button.setTitleColor(style.labelColor, for: .normal)
             }
+        }
+
+        /// Task 9.7: "a tinted toolbar while active" — a fixed color rather
+        /// than derived from `KeyStyle` since incognito is a transient,
+        /// theme-independent state signal (same reasoning system apps use a
+        /// fixed color for their own "private" indicators), and this
+        /// codebase doesn't have per-theme semantic colors yet (Phase 11).
+        private static let incognitoTint = UIColor.systemPurple
+
+        /// Task 9.7 — called by `KeyboardController.toggleIncognito()`, which
+        /// calls `restyle()` immediately afterward so `apply(style:)` picks
+        /// up the new tint right away rather than waiting for some other,
+        /// unrelated style change.
+        func setIncognito(_ isOn: Bool) {
+            isIncognitoActive = isOn
+            incognitoButton.accessibilityValue = isOn ? "on" : "off"
         }
 
         func setText(_ text: String?) {
@@ -211,23 +247,30 @@
         /// text (so the same word never appears twice). Task 8.6: the center
         /// slot is also bold when it's the autocorrect candidate (§6.7.5:
         /// "center = best (bold when it's the autocorrect candidate)").
-        static func slots(for result: SuggestionResult) -> [(text: String, isBold: Bool)] {
+        /// Task 9.3: `isVerbatim` on a slot (never more than one) tells the
+        /// controller to tag a tap on it with §6.7.6's "tapped verbatim"
+        /// 2.0 learning weight, not the ordinary "accepted suggestion" 1.0
+        /// — distinguishing it from a regular candidate slot whose text
+        /// happens to equal the typed text (e.g. it's already a known word).
+        static func slots(for result: SuggestionResult) -> [SuggestionSlot] {
             guard let verbatim = result.verbatim else {
-                return result.items.prefix(3).map { ($0.text, false) }
+                return result.items.prefix(3).map { SuggestionSlot(text: $0.text, isBold: false, isVerbatim: false) }
             }
             var items = result.items
             if let first = items.first, first.text == verbatim.text {
                 items.removeFirst()
-                return [(verbatim.text, true)] + items.prefix(2).map { ($0.text, false) }
+                return [SuggestionSlot(text: verbatim.text, isBold: true, isVerbatim: true)] +
+                    items.prefix(2).map { SuggestionSlot(text: $0.text, isBold: false, isVerbatim: false) }
             }
             let bestIsAutocorrect = result.autocorrect.map { $0.text == items.first?.text } ?? false
-            return [(verbatim.text, false)] + items.prefix(2).enumerated().map { index, item in
-                (item.text, index == 0 && bestIsAutocorrect)
-            }
+            return [SuggestionSlot(text: verbatim.text, isBold: false, isVerbatim: true)] + items.prefix(2).enumerated()
+                .map { index, item in
+                    SuggestionSlot(text: item.text, isBold: index == 0 && bestIsAutocorrect, isVerbatim: false)
+                }
         }
 
         private func setIconButtons(hidden: Bool) {
-            for button in [clipboardButton, editButton, resizeButton, settingsButton] {
+            for button in [clipboardButton, editButton, resizeButton, settingsButton, incognitoButton] {
                 button.isHidden = hidden
             }
         }

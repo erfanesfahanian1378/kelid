@@ -37,6 +37,8 @@ extension InputProcessor {
     func insertSuggestion(_ suggestion: Suggestion, in doc: TextDocument) -> [InputEffect] {
         let before = doc.contextBefore ?? shadowBuffer.contents
         let prefix = context.prefix
+        let previousWords = context.previousWords
+        let traits = context.traits
         for _ in prefix {
             doc.deleteBackward()
         }
@@ -71,6 +73,9 @@ extension InputProcessor {
         pushUndo(.replaced(deleted: actuallyDeleted, inserted: replacement))
 
         var effects = resolveShiftAfterInsertion()
+        effects += commitEffect(
+            word: suggestion.text, source: suggestion.isVerbatim ? .verbatim : .accepted, previousWords: previousWords, traits: traits
+        )
         effects.append(.requestSuggestions)
         return effects
     }
@@ -85,6 +90,8 @@ extension InputProcessor {
     func applyAutocorrect(corrected: String, separator: String, in doc: TextDocument) -> [InputEffect] {
         let before = doc.contextBefore ?? shadowBuffer.contents
         let original = context.prefix
+        let previousWords = context.previousWords
+        let traits = context.traits
         for _ in original {
             doc.deleteBackward()
         }
@@ -111,10 +118,13 @@ extension InputProcessor {
         shadowBuffer.recordInsertion(replacement)
         autoSpacePending = separator == " "
         pushUndo(.replaced(deleted: actuallyDeleted, inserted: replacement))
-        lastAutocorrection = (original: original, corrected: corrected, separator: separator)
+        lastAutocorrection = PendingAutocorrection(
+            original: original, corrected: corrected, separator: separator, previousWords: previousWords, traits: traits
+        )
 
         var effects = resolveShiftAfterInsertion()
         effects.append(.autocorrected(Autocorrection(original: original, corrected: corrected, separator: separator)))
+        effects += commitEffect(word: corrected, source: .typed, previousWords: previousWords, traits: traits)
         effects.append(.requestSuggestions)
         return effects
     }

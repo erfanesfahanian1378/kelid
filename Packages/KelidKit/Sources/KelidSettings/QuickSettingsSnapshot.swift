@@ -36,7 +36,7 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
     public var clipboardSkipSensitive: Bool
     public var clipboardCaptureImages: Bool
 
-    // Prediction (§6.1.5, task 7.11) — for `language` specifically (the
+    // Prediction (§6.1.5, task 7.11/9.8) — for `language` specifically (the
     // keyboard panel passes its current typing language; `toolbarMode` is
     // the one field here that isn't per-language).
     public var predictionLanguage: LanguageID
@@ -44,7 +44,17 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
     public var predictionSuggestionCount: Int
     public var predictionShowVerbatimSlot: Bool
     public var predictionPreferZWNJForms: Bool
+    public var predictionSource: PredictionSource
+    public var predictionPersonalWeight: Double
     public var toolbarMode: ToolbarMode
+
+    /// Learning (§6.1.6, task 9.8) — not per-language; `incognito` is
+    /// intentionally excluded here, since it's also mirrored on the
+    /// session-only `KeyboardState.incognito` the toolbar toggle (task 9.7)
+    /// flips — `QuickSettingsView` binds its incognito toggle straight to a
+    /// dedicated callback instead of round-tripping through this snapshot's
+    /// generic `apply(to:)`, so the two never fight over which one is current.
+    public var learningEnabled: Bool
 
     public init(settings: KeyboardSettings, orientation: SizeOrientation, language: LanguageID = .fa) {
         let profile = settings.size.profile(for: orientation)
@@ -75,7 +85,10 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
         predictionSuggestionCount = prediction.suggestionCount
         predictionShowVerbatimSlot = prediction.showVerbatimSlot
         predictionPreferZWNJForms = prediction.preferZWNJForms
+        predictionSource = prediction.source
+        predictionPersonalWeight = prediction.personalWeight
         toolbarMode = settings.toolbar.mode
+        learningEnabled = settings.learning.enabled
     }
 
     /// §6.3.7's "Reset size" safety net — a snapshot built from
@@ -124,8 +137,11 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
             prediction.suggestionCount = predictionSuggestionCount
             prediction.showVerbatimSlot = predictionShowVerbatimSlot
             prediction.preferZWNJForms = predictionPreferZWNJForms
+            prediction.source = predictionSource
+            prediction.personalWeight = predictionPersonalWeight
         }
         settings.toolbar.mode = toolbarMode
+        settings.learning.enabled = learningEnabled
     }
 }
 

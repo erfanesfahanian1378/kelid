@@ -45,10 +45,51 @@ public enum FeedbackKind: Sendable, Equatable {
     case error
 }
 
-/// Placeholder — Phase 9 gives this the real personal-learning fields.
+/// §6.7.8's commit source tags — `PredictionEngine`'s own
+/// `UserModelCommitSource` has more cases (`.importText`/`.contacts`/
+/// `.manual`, none of which a live typing session ever produces); this is
+/// `InputEngine`'s narrower "what real-time typing can commit" subset
+/// (§4.2: `InputEngine` doesn't depend on `PredictionEngine`). `KeyboardUI`
+/// converts between the two when forwarding a `.learn` effect.
+public enum CommitSource: String, Sendable, Equatable {
+    /// A space/punctuation/return committed the typed word as-is, or
+    /// autocorrect silently committed its corrected word (§6.7.8: commit
+    /// triggers include "autocorrect (the final word)" — not called out
+    /// with its own increment weight in §6.7.6's list, so it's treated the
+    /// same as an ordinary typed-and-committed word).
+    case typed
+    /// A non-verbatim suggestion bar slot was tapped.
+    case accepted
+    /// The verbatim slot specifically was tapped (§6.7.6: 2.0, not 1.0).
+    case verbatim
+    /// A backspace right after an autocorrect reverted it — the *original*
+    /// typed word is learned (§6.7.6: 2.0).
+    case revert
+}
+
+/// §6.7.8's commit event — task 9.3. `previousWords` is the same
+/// sentence-scoped, up-to-2-words `TypingContext.previousWords` shape,
+/// captured *before* the committing action ran (so it reflects the
+/// sentence context the committed word actually appeared in).
 public struct CommitEvent: Sendable, Equatable {
     public let word: String
     public let language: LanguageID
+    public let source: CommitSource
+    public let previousWords: [String]
+    /// Set only when `source == .revert`: the autocorrected word the user
+    /// just rejected by backspacing it away — §6.7.8: "Reverting an
+    /// autocorrect adds the pair `(typed → corrected)` to
+    /// `blockedCorrections`," which needs both halves of the pair, not just
+    /// the original `word` this event already carries.
+    public let revertedCorrection: String?
+
+    public init(word: String, language: LanguageID, source: CommitSource, previousWords: [String], revertedCorrection: String? = nil) {
+        self.word = word
+        self.language = language
+        self.source = source
+        self.previousWords = previousWords
+        self.revertedCorrection = revertedCorrection
+    }
 }
 
 /// §6.7.9's autocorrect event (task 8.6) — `separator` is what was typed to

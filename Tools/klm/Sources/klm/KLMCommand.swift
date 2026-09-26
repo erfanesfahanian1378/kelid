@@ -1,4 +1,5 @@
 import ArgumentParser
+import Dispatch
 import Foundation
 import KelidCore
 import PersianText
@@ -233,6 +234,14 @@ extension KLMCommand {
         @Option(help: "Seed for the synthetic-typo generator, for reproducible correction-accuracy numbers.")
         var typoSeed: UInt64 = 42
 
+        @Flag(
+            help: "Task 9.11: also simulate learning from the corpus's first half and measure KSR on the second half, hybrid vs language-only."
+        )
+        var personalize = false
+
+        @Option(help: "λ for --personalize's hybrid run (§6.7.7's personalWeight; default matches fa's own §6.1.5 default).")
+        var personalWeight: Double = 0.6
+
         func run() throws {
             let file = try KLMFile(path: model)
             let lexicon = Lexicon(file: file)
@@ -242,6 +251,28 @@ extension KLMCommand {
             }
             let metrics = Eval.run(lexicon: lexicon, sentences: sentences, proximity: .empty, typoSeed: typoSeed)
             Self.printReport(model: model, corpus: corpus, sentenceCount: sentences.count, metrics: metrics)
+            if personalize {
+                let personalization = Self.runPersonalizationSync(lexicon: lexicon, sentences: sentences, personalWeight: personalWeight)
+                Self.printPersonalizationReport(personalization)
+            }
+        }
+
+        /// Bridges `Eval.runWithPersonalization`'s `async` work into this
+        /// synchronous CLI entry point — `EvalSubcommand` stays a plain
+        /// `ParsableCommand` (not `AsyncParsableCommand`) so the rest of
+        /// `klm`'s command tree, and `@main struct KLMCommand` itself,
+        /// don't have to become async just for this one flag.
+        private static func runPersonalizationSync(
+            lexicon: Lexicon, sentences: [[String]], personalWeight: Double
+        ) -> Eval.PersonalizationMetrics {
+            let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var result: Eval.PersonalizationMetrics!
+            Task {
+                result = await Eval.runWithPersonalization(lexicon: lexicon, sentences: sentences, personalWeight: personalWeight)
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return result
         }
 
         static func readCorpus(path: String) throws -> [[String]] {
@@ -268,6 +299,21 @@ extension KLMCommand {
 
         private static func ms(_ value: Double) -> String {
             String(format: "%.3fms", value)
+        }
+
+        /// Task 9.11's own acceptance criterion: "Personalized KSR ≥
+        /// language-only KSR on the eval split" — the delta line makes that
+        /// comparison legible at a glance instead of making the reader do
+        /// the subtraction.
+        private static func printPersonalizationReport(_ metrics: Eval.PersonalizationMetrics) {
+            print("")
+            print("--- personalization (task 9.11) ---")
+            print("trained on:           \(metrics.trainSentenceCount) sentences")
+            print("evaluated on:         \(metrics.evalSentenceCount) sentences (the other half)")
+            print("KSR, language-only:   \(percent(metrics.languageOnlyKSR))")
+            print("KSR, hybrid:          \(percent(metrics.hybridKSR))")
+            let deltaPoints = (metrics.hybridKSR - metrics.languageOnlyKSR) * 100
+            print("delta:                \(String(format: "%+.1f", deltaPoints)) points")
         }
     }
 }

@@ -143,6 +143,7 @@ public actor DatabaseManager {
         }
         registerV1Clips(&migrator)
         registerV1Snippets(&migrator)
+        registerV1UserModel(&migrator)
         return migrator
     }
 
@@ -204,6 +205,53 @@ public actor DatabaseManager {
                 t.column("createdAt", .double).notNull()
                 t.column("updatedAt", .double).notNull()
                 t.column("useCount", .integer).notNull().defaults(to: 0)
+            }
+        }
+    }
+
+    /// §6.11.3's `user_word`/`user_bigram`/`user_trigram`/`user_correction_block`
+    /// tables (task 9.1) — `UserModel`'s (§6.7.6) persisted personal model.
+    private static func registerV1UserModel(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v1_user_model") { db in
+            try db.create(table: "user_word") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("lang", .text).notNull()
+                t.column("surface", .text).notNull()
+                t.column("matchKey", .text).notNull()
+                t.column("count", .double).notNull().defaults(to: 0)
+                t.column("lastUsedAt", .double).notNull()
+                t.column("firstSeenAt", .double).notNull()
+                t.column("source", .text).notNull().defaults(to: "typed")
+                t.column("isBlocked", .boolean).notNull().defaults(to: false)
+                t.uniqueKey(["lang", "surface"])
+            }
+            try db.create(index: "user_word_key", on: "user_word", columns: ["lang", "matchKey"])
+
+            try db.create(table: "user_bigram", options: .withoutRowID) { t in
+                t.column("lang", .text).notNull()
+                t.column("w1", .text).notNull()
+                t.column("w2", .text).notNull()
+                t.column("count", .double).notNull()
+                t.column("lastUsedAt", .double).notNull()
+                t.primaryKey(["lang", "w1", "w2"])
+            }
+
+            try db.create(table: "user_trigram", options: .withoutRowID) { t in
+                t.column("lang", .text).notNull()
+                t.column("w1", .text).notNull()
+                t.column("w2", .text).notNull()
+                t.column("w3", .text).notNull()
+                t.column("count", .double).notNull()
+                t.column("lastUsedAt", .double).notNull()
+                t.primaryKey(["lang", "w1", "w2", "w3"])
+            }
+
+            try db.create(table: "user_correction_block", options: .withoutRowID) { t in
+                t.column("lang", .text).notNull()
+                t.column("typed", .text).notNull()
+                t.column("corrected", .text).notNull()
+                t.column("createdAt", .double).notNull()
+                t.primaryKey(["lang", "typed", "corrected"])
             }
         }
     }

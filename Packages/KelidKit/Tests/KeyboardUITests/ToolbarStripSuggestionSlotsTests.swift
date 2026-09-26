@@ -32,6 +32,7 @@
             #expect(slots[0].isBold)
             #expect(!slots[1].isBold)
             #expect(!slots[2].isBold)
+            #expect(slots.map(\.isVerbatim) == [true, false, false]) // task 9.3
         }
 
         @Test("verbatim distinct from best keeps all three slots, none bold")
@@ -48,6 +49,7 @@
             let slots = ToolbarStripView.slots(for: result)
             #expect(slots.map(\.text) == ["میخ", "میخواهم", "میخواستم"])
             #expect(slots.allSatisfy { !$0.isBold })
+            #expect(slots.map(\.isVerbatim) == [true, false, false]) // task 9.3: leading slot is still verbatim
         }
 
         @Test("the center slot is bold when it matches the autocorrect candidate (task 8.6, §6.7.5)")
@@ -92,6 +94,7 @@
             )
             let slots = ToolbarStripView.slots(for: result)
             #expect(slots.map(\.text) == ["a", "b", "c"]) // capped at 3
+            #expect(slots.allSatisfy { !$0.isVerbatim }) // no verbatim slot at all when showVerbatimSlot is off
         }
 
         @Test(

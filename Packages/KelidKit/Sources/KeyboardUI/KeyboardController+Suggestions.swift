@@ -3,24 +3,147 @@
     import InputEngine
     import KelidCore
     import KelidSettings
+    import KelidStorage
     import KeyboardLayout
     import PredictionEngine
     import UIKit
 
-    /// Prediction (Phase 7) — model loading, building a `SuggestionRequest`
+    /// Prediction (Phase 7/9) — model loading, building a `SuggestionRequest`
     /// from `InputProcessor`'s own `TypingContext`, and turning a tapped
     /// suggestion bar slot into `.insertSuggestion(_:)` — split out of
     /// `KeyboardController.swift` itself purely to keep that type's body
     /// under SwiftLint's `type_body_length`; behaviorally this is still
     /// part of `KeyboardController`, just declared in a second file.
     extension KeyboardController {
-        /// Task 7.6: "loads models in a background Task (utility priority)
-        /// after the first frame" — called once from `init`, after `rebuild()`
-        /// has already produced the keyboard's first real layout, so this
-        /// never delays it.
+        /// Task 7.6/9.2: "loads models in a background Task (utility
+        /// priority) after the first frame" — called once from `init`, after
+        /// `rebuild()` has already produced the keyboard's first real
+        /// layout, so this never delays it. Loads both the base language
+        /// models (Phase 7) and each language's personal `UserModel` (task
+        /// 9.2) from the same `userModelDatabase` `KeyboardServices` hands
+        /// this controller — one `UserModelStoreAdapter` per language,
+        /// wrapping a shared `UserModelRepository`.
         func loadPredictionModels() {
             Task(priority: .utility) { [suggestionService] in
                 try? await suggestionService.load(languages: LanguageID.allCases, resources: ExtensionModelLocator())
+            }
+            let repository = UserModelRepository(database: userModelDatabase)
+            let learning = settings.learning
+            let userModelSettings = UserModelSettings(
+                halfLifeDays: Double(learning.halfLifeDays),
+                maxWords: learning.maxUserWords,
+                newWordThreshold: Double(learning.newWordThreshold)
+            )
+            let stores: [LanguageID: any UserModelStore] = Dictionary(
+                uniqueKeysWithValues: LanguageID.allCases.map { ($0, UserModelStoreAdapter(repository: repository, language: $0)) }
+            )
+            Task(priority: .utility) { [suggestionService] in
+                try? await suggestionService.loadUserModels(stores, settings: userModelSettings)
+            }
+        }
+
+        /// Task 9.2's write-behind flush (§6.7.6: "5 s / disappear /
+        /// background") — started from `viewWillAppear`/stopped from
+        /// `viewDidDisappear`, same lifecycle as `startClipboardPolling()`/
+        /// `stopClipboardPolling()` (including the selector-based `Timer`
+        /// API, per decision 24: the closure-based overload risks landing in
+        /// `@Sendable`/non-isolated territory under Swift 6 strict
+        /// concurrency for a `@MainActor`-isolated target/selector).
+        public func startUserModelFlushTimer() {
+            stopUserModelFlushTimer()
+            userModelFlushTimer = Timer.scheduledTimer(
+                timeInterval: 5.0, target: self, selector: #selector(handleUserModelFlushTick), userInfo: nil, repeats: true
+            )
+        }
+
+        /// Also flushes immediately — covers both the "disappear" and
+        /// "background" halves of §6.7.6's write-behind trigger list, since
+        /// `KeyboardViewController` calls this from `viewDidDisappear` and
+        /// this controller has no separate background-only hook of its own.
+        public func stopUserModelFlushTimer() {
+            userModelFlushTimer?.invalidate()
+            userModelFlushTimer = nil
+            Task { [suggestionService] in
+                await suggestionService.flushUserModels()
+            }
+        }
+
+        @objc fileprivate func handleUserModelFlushTick() {
+            Task { [suggestionService] in
+                await suggestionService.flushUserModels()
+            }
+        }
+
+        /// Task 9.7: the toolbar's incognito toggle — flips the session-only
+        /// `KeyboardState.incognito` flag (gates both learning, via `.learn`
+        /// below, and suggestion requests, already checked in
+        /// `requestSuggestions()`) and persists it to
+        /// `KelidSettings.LearningSettings.incognito` too, since §6.1.6 lists
+        /// it as edited from both "KB" and "App." Also clears any suggestion
+        /// bar immediately, matching "no chip/no suggestions while
+        /// incognito."
+        public func toggleIncognito() {
+            state.incognito = !state.incognito
+            let newValue = state.incognito
+            onRequestSettingsChange? { $0.learning.incognito = newValue }
+            rootView.toolbarStrip.setIncognito(state.incognito)
+            restyle()
+            state.suggestions = nil
+            requestSuggestions()
+        }
+
+        /// §6.7.8's commit — `InputProcessor` already filtered by field-
+        /// sensitivity and word shape (task 9.3); this is the other half
+        /// only `KeyboardUI` can check (`learning.enabled`/incognito, per
+        /// `SuggestionService.recordCommit`'s own doc comment), then forwards
+        /// to `PredictionEngine`'s wider `UserModelCommitSource` (a strict
+        /// superset of `InputEngine.CommitSource` — see that type's doc
+        /// comment).
+        func handleLearn(_ event: CommitEvent) {
+            guard settings.learning.enabled, !state.incognito else { return }
+            let learnPhrases = settings.learning.learnPhrases
+            let source = Self.userModelCommitSource(for: event.source)
+            let language = event.language
+            Task { [suggestionService] in
+                await suggestionService.recordCommit(
+                    word: event.word,
+                    language: language,
+                    source: source,
+                    previousWords: event.previousWords,
+                    learnPhrases: learnPhrases
+                )
+                // §6.7.8: "Reverting an autocorrect adds the pair
+                // (typed → corrected) to blockedCorrections."
+                if let revertedCorrection = event.revertedCorrection {
+                    try? await suggestionService.blockCorrection(typed: event.word, corrected: revertedCorrection, language: language)
+                }
+            }
+        }
+
+        /// Task 9.6: `KeyboardViewController` is the only thing that can
+        /// call `UIInputViewController.requestSupplementaryLexicon` at all
+        /// — it parses the raw `UILexicon` (its own text-replacement-vs-
+        /// contact-name heuristic) and hands the two halves here.
+        /// `replacements` applies to the *current* typing language only,
+        /// same as every other per-language prediction setting — `UILexicon`
+        /// itself has no language tagging, so a shortcut typed in the other
+        /// language simply won't match until the user switches to it (this
+        /// call is re-made on every language change's next appearance
+        /// anyway, via the same 1-hour cache path).
+        public func applySupplementaryLexicon(textReplacements: [String: String], contactNames: [String]) {
+            let language = state.language
+            Task { [suggestionService] in
+                await suggestionService.updateTextReplacements(textReplacements, for: language)
+                await suggestionService.addContactNames(contactNames, language: language)
+            }
+        }
+
+        private static func userModelCommitSource(for source: CommitSource) -> UserModelCommitSource {
+            switch source {
+            case .typed: .typed
+            case .accepted: .accepted
+            case .verbatim: .verbatim
+            case .revert: .revert
             }
         }
 
@@ -57,15 +180,23 @@
                 guard let self, let result = state.suggestions else { return }
                 let slots = ToolbarStripView.slots(for: result)
                 guard slotIndex < slots.count else { return }
-                let text = slots[slotIndex].text
-                let candidate = (result.items + [result.verbatim].compactMap { $0 }).first { $0.text == text }
-                    ?? SuggestionCandidate(text: text)
-                tapSuggestion(candidate)
+                let slot = slots[slotIndex]
+                let candidate = (result.items + [result.verbatim].compactMap { $0 }).first { $0.text == slot.text }
+                    ?? SuggestionCandidate(text: slot.text)
+                tapSuggestion(candidate, isVerbatim: slot.isVerbatim)
             }
-            rootView.toolbarStrip.onLongPressSuggestionSlot = { [weak self] _ in
-                // Task 7.8: "long-press shows a placeholder menu (\"Don't
-                // suggest\" arrives in Phase 9)" — no real action yet.
-                self?.state.toast = "Suggestion options arrive in a future update"
+            rootView.toolbarStrip.onLongPressSuggestionSlot = { [weak self] slotIndex in
+                guard let self, let result = state.suggestions else { return }
+                let slots = ToolbarStripView.slots(for: result)
+                guard slotIndex < slots.count else { return }
+                let word = slots[slotIndex].text
+                let language = state.language
+                onPresentSuggestionMenu?(
+                    word,
+                    { [weak self] in self?.dontSuggestWord(word, language: language) },
+                    { [weak self] in self?.forgetWord(word, language: language) },
+                    { [weak self] in self?.onDismissSuggestionMenu?() }
+                )
             }
             rootView.toolbarStrip.onTapEmoji = { [weak self] emoji in
                 // Plain already-resolved text the user didn't type — the
@@ -107,7 +238,9 @@
                     blockOffensive: predictionSettings.blockOffensive,
                     nextWordEnabled: predictionSettings.nextWord,
                     autocorrectEnabled: predictionSettings.autocorrect != .off,
-                    autocorrectStrength: predictionSettings.autocorrectStrength
+                    autocorrectStrength: predictionSettings.autocorrectStrength,
+                    source: Self.sourceMode(for: predictionSettings.source),
+                    personalWeight: predictionSettings.personalWeight
                 ),
                 incognito: state.incognito
             )
@@ -120,6 +253,19 @@
                         .map { emojiSuggester.suggest(forWord: $0, language: state.language.rawValue) } ?? []
                 }
                 state.suggestions = result
+            }
+        }
+
+        /// §4.2's narrow-slice conversion (same reasoning as decision 57):
+        /// `KelidSettings.PredictionSource` and `PredictionEngine.PredictionSourceMode`
+        /// have identical cases, just different types on either side of a
+        /// dependency `PredictionEngine` can't have on `KelidSettings`.
+        private static func sourceMode(for source: PredictionSource) -> PredictionSourceMode {
+            switch source {
+            case .off: .off
+            case .personalOnly: .personalOnly
+            case .languageOnly: .languageOnly
+            case .hybrid: .hybrid
             }
         }
 
@@ -191,9 +337,46 @@
         /// `InputAction.insertSuggestion`, same as every other text
         /// operation, so undo/shadow-buffer bookkeeping stay centralized in
         /// `InputProcessor`.
-        public func tapSuggestion(_ candidate: SuggestionCandidate) {
-            perform(.insertSuggestion(Suggestion(text: candidate.text)))
+        public func tapSuggestion(_ candidate: SuggestionCandidate, isVerbatim: Bool = false) {
+            perform(.insertSuggestion(Suggestion(text: candidate.text, isVerbatim: isVerbatim)))
             state.suggestions = nil
+        }
+
+        /// Task 9.5: "Don't suggest '…'" — blocks the word (§6.7.8's
+        /// blocklist, applies in every prediction source mode) and confirms
+        /// with a toast. Also immediately re-requests suggestions so the
+        /// now-blocked word disappears from the bar right away, not just on
+        /// the next keystroke.
+        func dontSuggestWord(_ word: String, language: LanguageID) {
+            Task { [suggestionService] in
+                try? await suggestionService.block(surface: word, language: language)
+            }
+            state.toast = "Won't suggest \"\(word)\" anymore"
+            state.suggestions = nil
+            requestSuggestions()
+        }
+
+        /// Task 9.5: "Forget '…'" — deletes the word's personal data
+        /// entirely (§6.7.8).
+        func forgetWord(_ word: String, language: LanguageID) {
+            Task { [suggestionService] in
+                try? await suggestionService.forget(surface: word, language: language)
+            }
+            state.toast = "Forgot \"\(word)\""
+            state.suggestions = nil
+            requestSuggestions()
+        }
+
+        /// Task 9.8's Quick Settings "Clear my learned words for this
+        /// language" — deletes every personal word/n-gram/blocklist entry
+        /// for `language`, in memory and in the database.
+        public func clearLearnedWords(for language: LanguageID) {
+            Task { [suggestionService] in
+                try? await suggestionService.clearPersonalData(for: language)
+            }
+            state.toast = "Cleared your learned words"
+            state.suggestions = nil
+            requestSuggestions()
         }
     }
 #endif
