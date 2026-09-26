@@ -21,9 +21,15 @@ public enum ClipboardTapAction: String, Codable, Sendable, CaseIterable {
 /// PLAN.md §6.1.7.
 public struct ClipboardSettings: Codable, Sendable, Equatable {
     public var enabled: Bool
-    /// Default is ".auto if no prompt", per the on-device pasteboard-access
-    /// test (§2.1 C3, task 5.0). Phase 1 has no clipboard yet, so this is
-    /// just the data default; Phase 5 may override it based on that test.
+    /// Task 5.0 asks for an on-device test (copy in Safari/Notes/Telegram,
+    /// watch whether reading `string` shows a banner/prompt) to decide
+    /// between `.auto` and `.onTap` — no session so far has had a physical
+    /// device to run that on. Defaults to `.onTap` (the more conservative,
+    /// less intrusive choice while untested: Apple's documented iOS 14+
+    /// "pasted from" banner fires on every content read, and `.onTap` never
+    /// reads without an explicit user tap) rather than `.auto`. Flip to
+    /// `.auto` once task 5.0's real device test is actually run — see
+    /// PROGRESS.md's decision log and "Device findings".
     public var captureMode: ClipboardCaptureMode
     public var pollWhileVisible: Bool
     public var maxItems: Int
@@ -44,7 +50,7 @@ public struct ClipboardSettings: Codable, Sendable, Equatable {
 
     public init(
         enabled: Bool = true,
-        captureMode: ClipboardCaptureMode = .auto,
+        captureMode: ClipboardCaptureMode = .onTap,
         pollWhileVisible: Bool = true,
         maxItems: Int = 200,
         retentionDays: Int? = 30,

@@ -36,7 +36,12 @@ public enum InputAction: Equatable, Sendable {
     case moveCursorWord(MoveDirection)
     case moveCursorLine(MoveDirection)
     case insertSuggestion(Suggestion)
-    case insertClip(ClipID)
+    /// Already-resolved clip text (task 5.8) — like `.character`, this
+    /// arrives pre-fetched: `InputProcessor` has no clipboard/database
+    /// access of its own (rule 5.1.5-adjacent module boundary). Also used
+    /// for `.pasteClipboard`'s actual insertion once the controller has
+    /// read the pasteboard string.
+    case insertClip(String)
     case copySelection
     case cutSelection
     case pasteClipboard
@@ -69,14 +74,5 @@ public struct Suggestion: Sendable, Equatable {
 
     public init(text: String) {
         self.text = text
-    }
-}
-
-/// Placeholder — Phase 5 gives this a real backing (a `clip` row's uuid).
-public struct ClipID: Sendable, Equatable, Hashable {
-    public let rawValue: String
-
-    public init(rawValue: String) {
-        self.rawValue = rawValue
     }
 }

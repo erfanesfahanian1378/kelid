@@ -40,6 +40,7 @@
                     sizeSection
                     typingSection
                     languageSection
+                    clipboardSection
                     Section {
                         Text("More settings in the Kelid app")
                             .font(.footnote)
@@ -130,6 +131,41 @@
                     Text("123 Latin").tag(PersianDigitsMode.latin)
                 }
             }
+        }
+
+        /// Task 5.11.
+        private var clipboardSection: some View {
+            Section("Clipboard") {
+                Toggle("Enabled", isOn: $snapshot.clipboardEnabled)
+                if snapshot.clipboardEnabled {
+                    Picker("Capture", selection: $snapshot.clipboardCaptureMode) {
+                        Text("Automatic").tag(ClipboardCaptureMode.auto)
+                        Text("On tap").tag(ClipboardCaptureMode.onTap)
+                        Text("Off").tag(ClipboardCaptureMode.off)
+                    }
+                    Stepper("Max items: \(snapshot.clipboardMaxItems)", value: $snapshot.clipboardMaxItems, in: 20 ... 2000, step: 20)
+                    Picker("Keep for", selection: retentionBinding) {
+                        Text("1 day").tag(1)
+                        Text("1 week").tag(7)
+                        Text("1 month").tag(30)
+                        Text("3 months").tag(90)
+                        Text("Forever").tag(0)
+                    }
+                    Toggle("Show clip chip", isOn: $snapshot.clipboardShowChip)
+                    Toggle("Skip sensitive items", isOn: $snapshot.clipboardSkipSensitive)
+                    Toggle("Capture images", isOn: $snapshot.clipboardCaptureImages)
+                }
+            }
+        }
+
+        /// `retentionDays == nil` means "forever" — mapped to `0` for the
+        /// picker's tag space, since `Picker` needs a non-optional `Hashable`
+        /// selection.
+        private var retentionBinding: Binding<Int> {
+            Binding(
+                get: { snapshot.clipboardRetentionDays ?? 0 },
+                set: { snapshot.clipboardRetentionDays = $0 == 0 ? nil : $0 }
+            )
         }
 
         /// At least one language must stay enabled — matches

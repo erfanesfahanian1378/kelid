@@ -27,6 +27,16 @@ public enum InputEffect: Equatable, Sendable {
     case nextInputMode
     case dismissKeyboard
     case toast(ToastKind)
+    /// §6.4.9's Copy/Cut: the text to write to the system pasteboard.
+    /// `InputProcessor` has no pasteboard access of its own (rule 5.1.5) —
+    /// the controller fulfills this via `PasteboardClient` and stores a
+    /// `.keyboard`-source clip.
+    case requestCopyToPasteboard(String)
+    /// §6.4.9's Paste: the controller reads the pasteboard string (a
+    /// user-initiated read, §2.1 C3) and feeds it back via
+    /// `.insertClip(text)` — `InputProcessor` can't read the pasteboard
+    /// itself.
+    case requestPasteFromPasteboard
 }
 
 public enum FeedbackKind: Sendable, Equatable {

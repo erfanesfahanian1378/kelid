@@ -1,3 +1,4 @@
+import ClipboardKit
 import InputEngine
 import KelidCore
 import KelidSettings
@@ -80,11 +81,13 @@ final class KeyboardViewController: UIInputViewController {
         let orientation = currentOrientation()
         controller.updateMetrics(currentMetrics(), orientation: orientation, screenHeight: screenHeight(for: orientation))
         controller.fieldTraitsDidChange()
+        controller.startClipboardPolling() // task 5.4, §6.5.2 — only while visible
         refreshDebugOverlay()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        controller?.stopClipboardPolling()
         suspendServices()
     }
 
@@ -132,6 +135,7 @@ final class KeyboardViewController: UIInputViewController {
             metrics: currentMetrics(),
             orientation: orientation,
             screenHeight: screenHeight(for: orientation),
+            clipboardService: makeClipboardService(),
             documentProvider: { document }
         )
         newController.onNextInputMode = { [weak self] in self?.advanceToNextInputMode() }
@@ -158,9 +162,31 @@ final class KeyboardViewController: UIInputViewController {
             self?.presentOverlay(UIHostingController(rootView: view))
         }
         newController.onDismissQuickSettings = { [weak self] in self?.dismissOverlay() }
+        newController.onPresentClipboardPanel = { [weak self] model in
+            self?.presentOverlay(UIHostingController(rootView: ClipboardPanelView(model: model)))
+        }
+        newController.onDismissClipboardPanel = { [weak self] in self?.dismissOverlay() }
+        newController.onPresentEditPanel = { [weak self] model in
+            self?.presentOverlay(UIHostingController(rootView: EditPanelView(model: model)))
+        }
+        newController.onDismissEditPanel = { [weak self] in self?.dismissOverlay() }
         controller = newController
         installRootView(newController.rootView)
         return newController
+    }
+
+    /// Task 5.2: a fresh `LivePasteboardClient`/`ClipRepository` per
+    /// `KeyboardController` instance — cheap (no I/O until actually used;
+    /// `ClipRepository`'s `DatabaseManager` may not even be open yet, and
+    /// every one of its calls already tolerates that with `try?`, same as
+    /// everywhere else in this codebase that touches the database before
+    /// `resumeServices()` finishes opening it).
+    private func makeClipboardService() -> ClipboardService {
+        ClipboardService(
+            pasteboard: LivePasteboardClient(),
+            repository: ClipRepository(database: services.database),
+            containerPaths: ContainerPaths.resolve(fullAccess: hasFullAccess)
+        )
     }
 
     private func installRootView(_ rootView: KeyboardRootView) {

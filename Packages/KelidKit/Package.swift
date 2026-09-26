@@ -113,7 +113,10 @@ let package = Package(
 
         .target(
             name: "ClipboardKit",
-            dependencies: ["KelidStorage", "PersianText", "KelidCore"]
+            dependencies: [
+                "KelidStorage", "PersianText", "KelidCore", "KelidSettings",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ]
         ),
         .testTarget(
             name: "ClipboardKitTests",

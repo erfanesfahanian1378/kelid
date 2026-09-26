@@ -7,8 +7,11 @@ import PersianText
 /// (§6.4.4's smart punctuation spacing).
 private let smartPunctuationTriggers: Set<Character> = [".", ",", "!", "?", ";", ":", "،", "؛", "؟", ")", "»", "…"]
 
-/// Sentence-ending punctuation (§6.4.3/§6.6.3).
-private let sentenceEndCharacters: Set<Character> = [".", "!", "?", "؟", "…"]
+/// Sentence-ending punctuation (§6.4.3/§6.6.3). Not `private`: shared with
+/// `InputProcessor+Context.swift` (a separate file, split out to keep
+/// `InputProcessor`'s body under SwiftLint's `type_body_length`) — `private`
+/// at file scope wouldn't be visible there.
+let sentenceEndCharacters: Set<Character> = [".", "!", "?", "؟", "…"]
 
 /// Implements §6.4.2's contract: character insertion with shift mapping,
 /// page switching, the shift/caps machine and auto-cap (§6.4.3), space and
@@ -34,10 +37,35 @@ public final class InputProcessor {
     private var lastManualShiftTapAt: Date?
     private var lastSpaceTapAt: Date?
     private var autoSpacePending = false
-    private var currentLanguage: LanguageID
-    private var shadowBuffer = ShadowBuffer()
+    /// Not `private`: `InputProcessor+Context.swift` reads this too.
+    var currentLanguage: LanguageID
+    /// `internal` (not `private`): `InputProcessor+EditActions.swift` (a
+    /// separate file, split out to keep this type's body under SwiftLint's
+    /// `type_body_length`) needs these — `private` is file-scoped in Swift,
+    /// even across extensions of the same type.
+    var shadowBuffer = ShadowBuffer()
 
     public private(set) var context: TypingContext = .empty
+
+    /// Whether `.undo` would currently do anything — the edit panel's own
+    /// enabled/disabled state (§6.4.9).
+    public var hasUndo: Bool {
+        !undoStack.isEmpty
+    }
+
+    /// §6.4.9's undo stack (max 20) — scoped to word deletions and clip
+    /// inserts (including paste), the two operations explicitly costly
+    /// enough to warrant a dedicated Undo button; ordinary character-by-
+    /// character typing doesn't push entries (backspace already reverses
+    /// that far more directly than an undo stack would).
+    enum UndoEntry {
+        case inserted(String)
+        case deleted(String)
+    }
+
+    var undoStack: [UndoEntry] = []
+    private var undoTrackedDocumentIdentifier: UUID?
+    static let maxUndoEntries = 20
 
     private static let doubleTapCapsLockWindow: TimeInterval = 0.3
     private static let doubleSpacePeriodWindow: TimeInterval = 0.6
@@ -57,6 +85,10 @@ public final class InputProcessor {
     @discardableResult
     public func handle(_ action: InputAction, in doc: TextDocument) -> [InputEffect] {
         shadowBuffer.noteDocument(doc.documentIdentifier)
+        if undoTrackedDocumentIdentifier != doc.documentIdentifier {
+            undoTrackedDocumentIdentifier = doc.documentIdentifier
+            undoStack.removeAll()
+        }
 
         var effects: [InputEffect] = []
         var clearsAutoSpace = true
@@ -111,9 +143,24 @@ public final class InputProcessor {
         case let .moveCursorLine(direction):
             doc.adjustTextPosition(byCharacterOffset: lineBoundaryOffset(direction: direction, in: doc))
 
-        case .insertSuggestion, .insertClip, .copySelection, .cutSelection, .pasteClipboard, .undo:
-            // Phase 5 (clipboard/edit), Phase 7-8 (suggestions): not yet implemented.
+        case .insertSuggestion:
+            // Phase 7-8: not yet implemented.
             break
+
+        case let .insertClip(text):
+            effects += insertClip(text, in: doc)
+
+        case .copySelection:
+            effects += copySelection(in: doc)
+
+        case .cutSelection:
+            effects += cutSelection(in: doc)
+
+        case .pasteClipboard:
+            effects.append(.requestPasteFromPasteboard)
+
+        case .undo:
+            performUndo(in: doc)
 
         case .dismissKeyboard:
             effects.append(.dismissKeyboard)
@@ -152,11 +199,16 @@ public final class InputProcessor {
         return effects
     }
 
-    private func resolveShiftAfterInsertion() -> [InputEffect] {
+    /// `internal`, not `private` — `InputProcessor+EditActions.swift` (a
+    /// separate file) calls this too.
+    func resolveShiftAfterInsertion() -> [InputEffect] {
         guard case .oneShot = shiftState else { return [] }
         shiftState = .off
         return [.shiftChanged(.off)]
     }
+
+    // Clip insert/Paste (task 5.8, §6.5.5), the edit panel's Copy/Cut
+    // (§6.4.9), and Undo are implemented in `InputProcessor+EditActions.swift`.
 
     // MARK: - ZWNJ (§6.4.5)
 
@@ -278,6 +330,15 @@ public final class InputProcessor {
             doc.deleteBackward()
         }
         shadowBuffer.recordDeletion(count: count)
+
+        // Capture exactly what left the document for Undo (§6.4.9), via the
+        // same before/after diff `KeyboardController`'s backspace-swipe
+        // restore (Phase 4) uses — robust to the host's `deleteBackward()`
+        // granularity rather than assuming `count` characters were removed.
+        let after = doc.contextBefore ?? ""
+        if before.hasPrefix(after), before.count > after.count {
+            pushUndo(.deleted(String(before.dropFirst(after.count))))
+        }
         return []
     }
 
@@ -408,72 +469,6 @@ public final class InputProcessor {
         return [.languageChanged(currentLanguage)]
     }
 
-    // MARK: - Context (task 3.5, §6.4.2)
-
-    private func computeContext(doc: TextDocument) -> TypingContext {
-        let before = doc.contextBefore ?? shadowBuffer.contents
-        let after = doc.contextAfter ?? ""
-
-        let prefix = trailingWordCharacters(before)
-        let suffix = leadingWordCharacters(after)
-        let isSentenceStart = computeIsSentenceStart(before)
-        let previousWords = computePreviousWords(before, currentPrefix: prefix)
-
-        return TypingContext(
-            prefix: prefix,
-            suffix: suffix,
-            previousWords: previousWords,
-            isSentenceStart: isSentenceStart,
-            language: currentLanguage,
-            traits: doc.traits
-        )
-    }
-
-    private func trailingWordCharacters(_ text: String) -> String {
-        String(Array(text).reversed().prefix { WordCharacters.isWordCharacter($0) }.reversed())
-    }
-
-    private func leadingWordCharacters(_ text: String) -> String {
-        String(text.prefix { WordCharacters.isWordCharacter($0) })
-    }
-
-    private func computeIsSentenceStart(_ before: String) -> Bool {
-        var chars = Array(before)
-        guard !chars.isEmpty else { return true }
-        if chars.last == "\n" {
-            return true
-        }
-        // Skip trailing spaces.
-        while let last = chars.last, last == " " {
-            chars.removeLast()
-        }
-        if chars.isEmpty {
-            return true
-        } // only spaces/nothing before the cursor
-        guard let last = chars.last else { return true }
-        return sentenceEndCharacters.contains(last)
-    }
-
-    /// Up to 2 words back in the same sentence, stopping at a sentence
-    /// boundary; `["<s>"]` if there are none (§6.4.2).
-    private func computePreviousWords(_ before: String, currentPrefix: String) -> [String] {
-        var remaining = String(before.dropLast(currentPrefix.count))
-        var words: [String] = []
-        while words.count < 2 {
-            // Trim trailing separators, stopping at a sentence boundary.
-            guard let last = remaining.last else { break }
-            if sentenceEndCharacters.contains(last) || last == "\n" {
-                break
-            }
-            if last == " " {
-                remaining.removeLast()
-                continue
-            }
-            let word = trailingWordCharacters(remaining)
-            guard !word.isEmpty else { break }
-            words.insert(word, at: 0)
-            remaining.removeLast(word.count)
-        }
-        return words.isEmpty ? ["<s>"] : words
-    }
+    // Context computation (task 3.5, §6.4.2) is implemented in
+    // `InputProcessor+Context.swift`.
 }

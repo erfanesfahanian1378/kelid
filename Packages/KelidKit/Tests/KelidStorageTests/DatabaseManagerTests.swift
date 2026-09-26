@@ -88,4 +88,37 @@ struct DatabaseManagerTests {
         }
         #expect(value == "b")
     }
+
+    @Test("open() also runs the v1_clips and v1_snippets migrations (task 5.1, §6.11.3)")
+    func openCreatesClipAndSnippetTables() async throws {
+        let url = tempDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let manager = DatabaseManager(fileURL: url)
+        try await manager.open()
+
+        let tables = try await manager.read { db -> [Bool] in
+            try [
+                db.tableExists("clip"),
+                db.tableExists("snippet_folder"),
+                db.tableExists("snippet"),
+            ]
+        }
+        #expect(tables == [true, true, true])
+
+        // A round-trip insert exercises the column set/constraints for real,
+        // not just "the table exists".
+        try await manager.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO clip (uuid, kind, text, searchKey, contentHash, createdAt, lastCopiedAt, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: ["u1", "text", "hello", "hello", "hash1", 1000, 1000, "capture"]
+            )
+        }
+        let storedText = try await manager.read { db in
+            try String.fetchOne(db, sql: "SELECT text FROM clip WHERE uuid = ?", arguments: ["u1"])
+        }
+        #expect(storedText == "hello")
+    }
 }

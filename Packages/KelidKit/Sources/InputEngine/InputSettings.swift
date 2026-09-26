@@ -17,6 +17,11 @@ public struct InputSettings: Sendable, Equatable {
     public var rtlVisualCursor: Bool
     public var longPressDelayMs: Int
     public var languageSwitch: LanguageSwitchMode
+    /// `ClipboardSettings.smartSpacing` (§6.5.5) — lives here, not fetched
+    /// from `ClipboardKit` directly, since `InputEngine` doesn't depend on
+    /// it (module boundary: `InputProcessor` never touches clip storage,
+    /// only already-resolved text via `.insertClip`).
+    public var clipSmartSpacing: Bool
 
     public init(
         enabledLanguages: [LanguageID] = [.fa, .en],
@@ -29,7 +34,8 @@ public struct InputSettings: Sendable, Equatable {
         cursorSpeed: Double = 1.0,
         rtlVisualCursor: Bool = true,
         longPressDelayMs: Int = 350,
-        languageSwitch: LanguageSwitchMode = .key
+        languageSwitch: LanguageSwitchMode = .key,
+        clipSmartSpacing: Bool = true
     ) {
         self.enabledLanguages = enabledLanguages
         self.doubleSpacePeriod = doubleSpacePeriod
@@ -42,9 +48,10 @@ public struct InputSettings: Sendable, Equatable {
         self.rtlVisualCursor = rtlVisualCursor
         self.longPressDelayMs = longPressDelayMs
         self.languageSwitch = languageSwitch
+        self.clipSmartSpacing = clipSmartSpacing
     }
 
-    public init(_ general: GeneralSettings) {
+    public init(_ general: GeneralSettings, clipSmartSpacing: Bool = true) {
         self.init(
             enabledLanguages: general.enabledLanguages,
             doubleSpacePeriod: general.doubleSpacePeriod,
@@ -56,7 +63,8 @@ public struct InputSettings: Sendable, Equatable {
             cursorSpeed: general.cursorSpeed,
             rtlVisualCursor: general.rtlVisualCursor,
             longPressDelayMs: general.longPressDelayMs,
-            languageSwitch: general.languageSwitch
+            languageSwitch: general.languageSwitch,
+            clipSmartSpacing: clipSmartSpacing
         )
     }
 }

@@ -141,6 +141,70 @@ public actor DatabaseManager {
                 t.column("value", .text)
             }
         }
+        registerV1Clips(&migrator)
+        registerV1Snippets(&migrator)
         return migrator
+    }
+
+    /// §6.11.3's `clip` table (Phase 5).
+    private static func registerV1Clips(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v1_clips") { db in
+            try db.create(table: "clip") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("uuid", .text).notNull().unique()
+                t.column("kind", .text).notNull().check { ["text", "url", "image"].contains($0) }
+                t.column("text", .text)
+                t.column("searchKey", .text).notNull().defaults(to: "")
+                t.column("imageFile", .text)
+                t.column("thumbFile", .text)
+                t.column("contentHash", .text).notNull().unique()
+                t.column("charCount", .integer).notNull().defaults(to: 0)
+                t.column("isTruncated", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .double).notNull()
+                t.column("lastCopiedAt", .double).notNull()
+                t.column("lastUsedAt", .double)
+                t.column("copyCount", .integer).notNull().defaults(to: 1)
+                t.column("useCount", .integer).notNull().defaults(to: 0)
+                t.column("isPinned", .boolean).notNull().defaults(to: false)
+                t.column("pinnedOrder", .double)
+                t.column("isSensitive", .boolean).notNull().defaults(to: false)
+                t.column("expiresAt", .double)
+                t.column("source", .text).notNull()
+            }
+            try db.create(index: "clip_recent", on: "clip", columns: ["isPinned", "lastCopiedAt"])
+            try db.create(
+                index: "clip_expiry", on: "clip", columns: ["expiresAt"],
+                condition: Column("expiresAt") != nil
+            )
+        }
+    }
+
+    /// §6.11.3's `snippet_folder`/`snippet` tables — real Phase 10
+    /// functionality, but the plan explicitly allows creating the schema
+    /// now "if convenient" (it is: no data depends on this yet, and it
+    /// avoids a later migration for an unrelated phase).
+    private static func registerV1Snippets(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v1_snippets") { db in
+            try db.create(table: "snippet_folder") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("uuid", .text).notNull().unique()
+                t.column("name", .text).notNull()
+                t.column("icon", .text)
+                t.column("sortOrder", .double).notNull()
+            }
+            try db.create(table: "snippet") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("uuid", .text).notNull().unique()
+                t.column("folderId", .integer).references("snippet_folder", onDelete: .setNull)
+                t.column("title", .text)
+                t.column("text", .text).notNull()
+                t.column("searchKey", .text).notNull()
+                t.column("shortcut", .text).unique()
+                t.column("sortOrder", .double).notNull()
+                t.column("createdAt", .double).notNull()
+                t.column("updatedAt", .double).notNull()
+                t.column("useCount", .integer).notNull().defaults(to: 0)
+            }
+        }
     }
 }

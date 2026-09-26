@@ -1,3 +1,10 @@
 --swiftversion 6.0
 --indent 4
 --maxwidth 140
+# `preferKeyPath` rewrites `.allSatisfy { $0 }`-shaped closures into
+# `.allSatisfy(\.self)` — inside a Swift Testing `#expect(...)` macro
+# expansion, that keypath form fails to type-check ("cannot infer key path
+# type from context"), a real compile break this rule introduced once
+# already (Phase 5). Disabled rather than hand-avoiding the pattern
+# everywhere `swiftformat .` might otherwise "fix" it again.
+--disable preferKeyPath

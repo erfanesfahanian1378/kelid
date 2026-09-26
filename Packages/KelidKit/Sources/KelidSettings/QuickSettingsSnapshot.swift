@@ -27,6 +27,15 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
     public var enabledLanguages: [LanguageID]
     public var persianDigits: PersianDigitsMode
 
+    // Clipboard (§6.1.7, task 5.11)
+    public var clipboardEnabled: Bool
+    public var clipboardCaptureMode: ClipboardCaptureMode
+    public var clipboardMaxItems: Int
+    public var clipboardRetentionDays: Int?
+    public var clipboardShowChip: Bool
+    public var clipboardSkipSensitive: Bool
+    public var clipboardCaptureImages: Bool
+
     public init(settings: KeyboardSettings, orientation: SizeOrientation) {
         let profile = settings.size.profile(for: orientation)
         rowHeight = profile.rowHeight
@@ -43,6 +52,13 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
         spaceTrackpad = settings.general.spaceTrackpad
         enabledLanguages = settings.general.enabledLanguages
         persianDigits = settings.general.persianDigits
+        clipboardEnabled = settings.clipboard.enabled
+        clipboardCaptureMode = settings.clipboard.captureMode
+        clipboardMaxItems = settings.clipboard.maxItems
+        clipboardRetentionDays = settings.clipboard.retentionDays
+        clipboardShowChip = settings.clipboard.showChip
+        clipboardSkipSensitive = settings.clipboard.skipSensitive
+        clipboardCaptureImages = settings.clipboard.captureImages
     }
 
     /// §6.3.7's "Reset size" safety net — a snapshot built from
@@ -79,6 +95,13 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
         settings.general.spaceTrackpad = spaceTrackpad
         settings.general.enabledLanguages = enabledLanguages
         settings.general.persianDigits = persianDigits
+        settings.clipboard.enabled = clipboardEnabled
+        settings.clipboard.captureMode = clipboardCaptureMode
+        settings.clipboard.maxItems = clipboardMaxItems
+        settings.clipboard.retentionDays = clipboardRetentionDays
+        settings.clipboard.showChip = clipboardShowChip
+        settings.clipboard.skipSensitive = clipboardSkipSensitive
+        settings.clipboard.captureImages = clipboardCaptureImages
     }
 }
 
