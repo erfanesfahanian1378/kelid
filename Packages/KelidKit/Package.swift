@@ -54,7 +54,8 @@ let package = Package(
         ),
         .testTarget(
             name: "PersianTextTests",
-            dependencies: ["PersianText"]
+            dependencies: ["PersianText"],
+            resources: [.process("vectors.json")]
         ),
 
         // MARK: - KeyboardLayout

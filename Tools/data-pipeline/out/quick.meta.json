@@ -1,0 +1,19 @@
+{
+  "sources": {
+    "fa": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/fa/fa_full.txt",
+    "en": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_full.txt"
+  },
+  "license": "CC-BY-SA-4.0 (hermitdave/FrequencyWords content license; code is MIT)",
+  "fetchedAt": "2026-09-26T08:00:08.052718+00:00",
+  "languages": {
+    "fa": {
+      "rawLines": 445744,
+      "keptTokens": 286830
+    },
+    "en": {
+      "rawLines": 1656996,
+      "keptTokens": 1061082
+    }
+  },
+  "runTimeSeconds": 7.41
+}

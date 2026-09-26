@@ -5,5 +5,9 @@ DerivedData/
 Config/Local.xcconfig
 Tools/data-pipeline/data/
 Tools/data-pipeline/.venv/
+Tools/data-pipeline/out/*.tsv
+Tools/data-pipeline/.pytest_cache/
+Tools/data-pipeline/**/__pycache__/
+Tools/data-pipeline/*.egg-info/
 *.xcuserstate
 .DS_Store

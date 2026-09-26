@@ -1,0 +1,19 @@
+{
+  "_comment": "§6.6.7's minimum test-vector set. Read by both PersianNormalizationVectorsTests.swift (Swift) and Tools/data-pipeline/tests/test_normalize.py (Python) so the two implementations of canonical()/matchKey() can never silently drift apart. Each row is written with explicit \\u escapes for ZWNJ/ZWJ/combining marks so the exact codepoints are unambiguous in a plain-text diff.",
+  "vectors": [
+    { "input": "كتاب", "canonical": "کتاب", "matchKey": "کتاب", "note": "كتاب: ك -> ک" },
+    { "input": "يك", "canonical": "یک", "matchKey": "یک", "note": "يك: ي -> ی, ك -> ک" },
+    { "input": "می‌خواهم", "canonical": "می‌خواهم", "matchKey": "میخواهم", "note": "می‌خواهم: internal ZWNJ kept by canonical, stripped by matchKey" },
+    { "input": "میخواهم", "canonical": "میخواهم", "matchKey": "میخواهم", "note": "میخواهم: no ZWNJ present, identical either way" },
+    { "input": "کتاب‌ها", "canonical": "کتاب‌ها", "matchKey": "کتابها", "note": "کتاب‌ها: internal ZWNJ kept by canonical, stripped by matchKey" },
+    { "input": "آب", "canonical": "آب", "matchKey": "اب", "note": "آب: matchKey maps آ -> ا" },
+    { "input": "خانهٔ", "canonical": "خانهٔ", "matchKey": "خانه", "note": "خانهٔ: ه + combining hamza above (U+0654, a diacritic) -> matchKey drops the diacritic" },
+    { "input": "خانۀ", "canonical": "خانۀ", "matchKey": "خانه", "note": "خانۀ: matchKey maps ۀ -> ه" },
+    { "input": "سلامـــ", "canonical": "سلام", "matchKey": "سلام", "note": "سلامـــ: canonical removes tatweel (repeated)" },
+    { "input": "بِسمِ", "canonical": "بِسمِ", "matchKey": "بسم", "note": "بِسمِ: matchKey removes kasra diacritics (U+0650)" },
+    { "input": "١٢٣", "canonical": "۱۲۳", "matchKey": "123", "note": "١٢٣: canonical maps Arabic-Indic -> Persian digits, matchKey -> ASCII" },
+    { "input": "Hello", "canonical": "Hello", "matchKey": "hello", "note": "Hello: canonical is case-preserving, matchKey lowercases Latin" },
+    { "input": "don’t", "canonical": "don’t", "matchKey": "don't", "note": "don’t: matchKey normalizes the curly apostrophe to a straight one" },
+    { "input": "‌سلام‌", "canonical": "سلام", "matchKey": "سلام", "note": "‌سلام‌: leading/trailing ZWNJ removed by canonical" }
+  ]
+}

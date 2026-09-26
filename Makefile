@@ -2,7 +2,7 @@
 
 SIM ?= platform=iOS Simulator,name=iPhone 17
 
-.PHONY: gen build test test-mac test-ios lint format klm data-quick data-full clean
+.PHONY: gen build test test-mac test-ios lint format klm data-quick data-full data-test clean
 
 gen:
 	xcodegen generate
@@ -30,11 +30,21 @@ format:
 klm:
 	cd Tools/klm && swift build
 
+# Task 6.3: hermitdave word-frequency lists -> out/{fa,en}.unigrams.tsv.
+# Finishes in seconds, not the "under 5 minutes" acceptance criterion's
+# worst case — good enough to unblock Phase 7 without the full pipeline.
 data-quick:
-	@echo "data-quick: language data pipeline arrives in Phase 6 (PLAN.md §8)."
+	cd Tools/data-pipeline && uv sync --group dev && uv run python -m pipeline.quick
 
+# Task 6.4-6.14: the full Wikipedia-based pipeline (downloads, extraction,
+# DuckDB counting, vocabulary selection, export, emoji data, eval sets,
+# reports). Runs for hours and needs ~30 GB free disk — see
+# Tools/data-pipeline/README.md before running it.
 data-full:
-	@echo "data-full: language data pipeline arrives in Phase 6 (PLAN.md §8)."
+	cd Tools/data-pipeline && uv sync --group dev && uv run python -m pipeline.full
+
+data-test:
+	cd Tools/data-pipeline && uv sync --group dev && uv run pytest
 
 clean:
 	rm -rf Kelid.xcodeproj
