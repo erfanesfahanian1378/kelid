@@ -15,11 +15,95 @@ public struct UnigramEntry: Sendable, Equatable {
     }
 }
 
-/// Builds a §7.2/§6.7.2 `.klm` binary from unigram counts. Bigram/trigram
-/// sections aren't produced yet (`hasBigrams`/`hasTrigrams` stay unset) —
-/// task 7.4 explicitly defers real n-gram building to Phase 8; the format
-/// itself already reserves the section tags (`BIDX`/`BENT`/`TIDX`/`TENT`)
-/// for when that lands.
+/// A `(w1, w2) -> count` row from `out/<lang>.bigrams.tsv` (task 6.10's
+/// export format).
+public struct BigramEntry: Sendable, Equatable {
+    public let w1: String
+    public let w2: String
+    public let count: UInt64
+
+    public init(w1: String, w2: String, count: UInt64) {
+        self.w1 = w1
+        self.w2 = w2
+        self.count = count
+    }
+}
+
+/// A `(w1, w2, w3) -> count` row from `out/<lang>.trigrams.tsv`.
+public struct TrigramEntry: Sendable, Equatable {
+    public let w1: String
+    public let w2: String
+    public let w3: String
+    public let count: UInt64
+
+    public init(w1: String, w2: String, w3: String, count: UInt64) {
+        self.w1 = w1
+        self.w2 = w2
+        self.w3 = w3
+        self.count = count
+    }
+}
+
+/// §6.7.2's builder caps and dequantization ranges — everything `klm build`
+/// exposes as flags, bundled into one struct rather than a long parameter
+/// list (`KLMWriter.build` already has enough positional inputs).
+public struct KLMBuildOptions: Sendable {
+    public var uniMinLog10: Double
+    public var biMinLog10: Double
+    public var triMinLog10: Double
+    /// §6.7.2: "`--max-bigram-entries 1500000`" — a global cap across every
+    /// context combined, enforced *after* per-context top-K trimming.
+    public var maxBigramEntries: Int
+    public var maxTrigramEntries: Int
+    /// §6.7.2: "per-context top-K = 32 (bigram) / 16 (trigram)."
+    public var bigramTopK: Int
+    public var trigramTopK: Int
+    /// §6.7.2: "Bigram minimum count 3, trigram minimum count 3."
+    public var bigramMinCount: UInt64
+    public var trigramMinCount: UInt64
+    /// §6.7.2: "trigram contexts only if `c(w1 w2) ≥ 10`."
+    public var trigramContextMinBigramCount: UInt64
+    /// Words that must exist (for n-gram tables to reference) but must
+    /// never be a completion — task 8.1's `<s>`, specifically; matched by
+    /// exact surface, not `matchKey`, since `<s>` isn't real text a user
+    /// could ever type.
+    public var hiddenSurfaces: Set<String>
+    public var offensiveWords: Set<String>
+    public var buildUnixTime: UInt64
+
+    public init(
+        uniMinLog10: Double = KLMFormat.defaultUniMinLog10,
+        biMinLog10: Double = KLMFormat.defaultBiMinLog10,
+        triMinLog10: Double = KLMFormat.defaultTriMinLog10,
+        maxBigramEntries: Int = 1_500_000,
+        maxTrigramEntries: Int = 1_000_000,
+        bigramTopK: Int = 32,
+        trigramTopK: Int = 16,
+        bigramMinCount: UInt64 = 3,
+        trigramMinCount: UInt64 = 3,
+        trigramContextMinBigramCount: UInt64 = 10,
+        hiddenSurfaces: Set<String> = ["<s>"],
+        offensiveWords: Set<String> = [],
+        buildUnixTime: UInt64 = UInt64(Date().timeIntervalSince1970)
+    ) {
+        self.uniMinLog10 = uniMinLog10
+        self.biMinLog10 = biMinLog10
+        self.triMinLog10 = triMinLog10
+        self.maxBigramEntries = maxBigramEntries
+        self.maxTrigramEntries = maxTrigramEntries
+        self.bigramTopK = bigramTopK
+        self.trigramTopK = trigramTopK
+        self.bigramMinCount = bigramMinCount
+        self.trigramMinCount = trigramMinCount
+        self.trigramContextMinBigramCount = trigramContextMinBigramCount
+        self.hiddenSurfaces = hiddenSurfaces
+        self.offensiveWords = offensiveWords
+        self.buildUnixTime = buildUnixTime
+    }
+}
+
+/// Builds a §6.7.2 `.klm` binary from unigram (and, from Phase 8, bigram/
+/// trigram) counts.
 public enum KLMWriter {
     public enum BuildError: Error, Equatable {
         case emptyVocabulary
@@ -31,41 +115,141 @@ public enum KLMWriter {
         language: LanguageID,
         unigrams: [UnigramEntry],
         maxWords: Int,
-        uniMinLog10: Double = KLMFormat.defaultUniMinLog10,
-        offensiveWords: Set<String> = [],
-        buildUnixTime: UInt64 = UInt64(Date().timeIntervalSince1970)
+        bigrams: [BigramEntry] = [],
+        trigrams: [TrigramEntry] = [],
+        options: KLMBuildOptions = KLMBuildOptions()
     ) throws -> Data {
-        // §6.7.2: "Word IDs are sorted by descending frequency, so ID 0 is
-        // the most frequent word" — ties broken by surface for determinism
-        // (a stable, reproducible build from the same input).
-        let sorted = unigrams
+        let vocab = try prepareVocabulary(unigrams: unigrams, maxWords: maxWords, options: options)
+        let wordSections = buildWordSections(vocab)
+        let (tnod, ttrm) = try buildTrieSections(matchKeys: vocab.matchKeys, scores: vocab.scores, hiddenIDs: vocab.hiddenIDs)
+        let ngrams = NGramSections.build(
+            bigrams: bigrams,
+            trigrams: trigrams,
+            surfaceToID: vocab.surfaceToID,
+            rawCountByID: vocab.rawCountByID,
+            options: options
+        )
+
+        var sections: [(tag: UInt32, bytes: [UInt8])] = [
+            (KLMFormat.SectionTag.wstr, wordSections.wstr),
+            (KLMFormat.SectionTag.woff, wordSections.woff),
+            (KLMFormat.SectionTag.wscr, wordSections.wscr),
+            (KLMFormat.SectionTag.wflg, wordSections.wflg),
+            (KLMFormat.SectionTag.tnod, tnod),
+            (KLMFormat.SectionTag.ttrm, ttrm),
+        ]
+        var headerFlags: UInt16 = 0
+        if !ngrams.bidx.isEmpty {
+            sections.append((KLMFormat.SectionTag.bidx, ngrams.bidx))
+            sections.append((KLMFormat.SectionTag.bent, ngrams.bent))
+            headerFlags |= KLMFormat.Flags.hasBigrams
+        }
+        if !ngrams.tidx.isEmpty {
+            sections.append((KLMFormat.SectionTag.tidx, ngrams.tidx))
+            sections.append((KLMFormat.SectionTag.tent, ngrams.tent))
+            headerFlags |= KLMFormat.Flags.hasTrigrams
+        }
+
+        return assembleFile(
+            sections: sections,
+            wordCount: vocab.surfaces.count,
+            trieNodeCount: tnod.count / 12,
+            language: language,
+            options: options,
+            headerFlags: headerFlags
+        )
+    }
+
+    /// One prepared, frequency-sorted, id-assigned vocabulary — everything
+    /// downstream (word sections, the trie, n-gram surface resolution)
+    /// reads from this instead of re-deriving it.
+    private struct PreparedVocabulary {
+        let surfaces: [String]
+        let matchKeys: [String]
+        let scores: [UInt8]
+        let flags: [UInt8]
+        let hiddenIDs: Set<UInt32>
+        let surfaceToID: [String: UInt32]
+        let rawCountByID: [UInt32: UInt64]
+    }
+
+    /// Frequency-sorts and caps the vocabulary, folds `<s>` (task 8.1's
+    /// hidden entry) back in outside the cap, and assigns final word ids —
+    /// §6.7.2: "Word IDs are sorted by descending frequency, so ID 0 is the
+    /// most frequent word" (ties broken by surface for determinism).
+    private static func prepareVocabulary(
+        unigrams: [UnigramEntry],
+        maxWords: Int,
+        options: KLMBuildOptions
+    ) throws -> PreparedVocabulary {
+        // Hidden entries don't compete for the frequency cap — they're not
+        // "words" in the vocabulary-size sense — so the cap is applied to
+        // real words only, then hidden entries are added back before final
+        // id assignment.
+        let hiddenInput = unigrams.filter { options.hiddenSurfaces.contains($0.surface) }
+        let realInput = unigrams.filter { !options.hiddenSurfaces.contains($0.surface) }
+        let sortedReal = realInput
             .sorted { $0.count == $1.count ? $0.surface < $1.surface : $0.count > $1.count }
             .prefix(maxWords)
-        guard !sorted.isEmpty else { throw BuildError.emptyVocabulary }
+        let combined = (Array(sortedReal) + hiddenInput)
+            .sorted { $0.count == $1.count ? $0.surface < $1.surface : $0.count > $1.count }
+        guard !combined.isEmpty else { throw BuildError.emptyVocabulary }
 
-        let totalCount = sorted.reduce(0.0) { $0 + Double($1.count) }
-        let surfaces = sorted.map(\.surface)
-        let scores: [UInt8] = sorted.map { entry in
-            let probability = Double(entry.count) / totalCount
+        let totalCount = sortedReal.reduce(0.0) { $0 + Double($1.count) } // hidden entries don't count toward P(w)
+        let surfaces = combined.map(\.surface)
+        let hiddenIDs = Set(combined.indices.filter { options.hiddenSurfaces.contains(surfaces[$0]) }.map(UInt32.init))
+        let scores: [UInt8] = combined.map { entry in
+            let probability = totalCount > 0 ? Double(entry.count) / totalCount : 0
             let log10P = log10(max(probability, .leastNormalMagnitude))
-            return KLMFormat.quantize(log10P: log10P, minLog10: uniMinLog10)
+            return KLMFormat.quantize(log10P: log10P, minLog10: options.uniMinLog10)
         }
-        let flags: [UInt8] = surfaces.map { surface in
+        let flags: [UInt8] = combined.enumerated().map { index, entry in
             var f: UInt8 = 0
-            if PersianNormalization.containsZWNJ(surface) {
+            if PersianNormalization.containsZWNJ(entry.surface) {
                 f |= KLMFormat.WordFlags.containsZWNJ
             }
-            if offensiveWords.contains(PersianNormalization.matchKey(surface)) {
+            if options.offensiveWords.contains(PersianNormalization.matchKey(entry.surface)) {
                 f |= KLMFormat.WordFlags.offensive
+            }
+            if hiddenIDs.contains(UInt32(index)) {
+                f |= KLMFormat.WordFlags.hidden
             }
             return f
         }
-        let matchKeys = surfaces.map(PersianNormalization.matchKey)
+        var surfaceToID: [String: UInt32] = [:]
+        surfaceToID.reserveCapacity(surfaces.count)
+        for (index, surface) in surfaces.enumerated() {
+            // First (highest-frequency, since `combined` is sorted) wins —
+            // surfaces are unique in well-formed input anyway.
+            if surfaceToID[surface] == nil {
+                surfaceToID[surface] = UInt32(index)
+            }
+        }
+        let rawCountByID = Dictionary(uniqueKeysWithValues: combined.map(\.count).enumerated().map { (UInt32($0), $1) })
 
+        return PreparedVocabulary(
+            surfaces: surfaces,
+            matchKeys: surfaces.map(PersianNormalization.matchKey),
+            scores: scores,
+            flags: flags,
+            hiddenIDs: hiddenIDs,
+            surfaceToID: surfaceToID,
+            rawCountByID: rawCountByID
+        )
+    }
+
+    private struct WordSections {
+        let wstr: [UInt8]
+        let woff: [UInt8]
+        let wscr: [UInt8]
+        let wflg: [UInt8]
+    }
+
+    private static func buildWordSections(_ vocab: PreparedVocabulary) -> WordSections {
         var wstr = ByteWriter()
         var woff = ByteWriter()
         var offset: UInt32 = 0
-        for surface in surfaces {
+        for surface in vocab.surfaces {
             woff.u32(offset)
             let utf8 = Array(surface.utf8)
             wstr.raw(utf8)
@@ -74,26 +258,27 @@ public enum KLMWriter {
         woff.u32(offset) // final entry = total length
 
         var wscr = ByteWriter()
-        for score in scores {
+        for score in vocab.scores {
             wscr.u8(score)
         }
         var wflg = ByteWriter()
-        for flag in flags {
+        for flag in vocab.flags {
             wflg.u8(flag)
         }
+        return WordSections(wstr: wstr.bytes, woff: woff.bytes, wscr: wscr.bytes, wflg: wflg.bytes)
+    }
 
-        let (tnod, ttrm) = try buildTrieSections(matchKeys: matchKeys, scores: scores)
-
-        let sections: [(tag: UInt32, bytes: [UInt8])] = [
-            (KLMFormat.SectionTag.wstr, wstr.bytes),
-            (KLMFormat.SectionTag.woff, woff.bytes),
-            (KLMFormat.SectionTag.wscr, wscr.bytes),
-            (KLMFormat.SectionTag.wflg, wflg.bytes),
-            (KLMFormat.SectionTag.tnod, tnod),
-            (KLMFormat.SectionTag.ttrm, ttrm),
-        ]
-
-        // §6.7.2: "every section starts at an 8-byte-aligned offset."
+    /// §6.7.2: "every section starts at an 8-byte-aligned offset" — lays out
+    /// the section directory, pads and concatenates every section's bytes,
+    /// then writes the fixed-size header in front of it all.
+    private static func assembleFile(
+        sections: [(tag: UInt32, bytes: [UInt8])],
+        wordCount: Int,
+        trieNodeCount: Int,
+        language: LanguageID,
+        options: KLMBuildOptions,
+        headerFlags: UInt16
+    ) -> Data {
         // `body` holds everything after the section directory, so a
         // section's absolute file offset is `sectionDirectoryEnd +
         // body.count` at the point it's appended.
@@ -111,18 +296,18 @@ public enum KLMWriter {
         var header = ByteWriter()
         header.raw(KLMFormat.magic)
         header.u16(KLMFormat.formatVersion)
-        header.u16(0) // flags: no bigrams/trigrams yet
+        header.u16(headerFlags)
         var languageBytes = Array(language.rawValue.utf8)
         languageBytes.append(contentsOf: [UInt8](repeating: 0, count: max(0, 8 - languageBytes.count)))
         header.raw(Array(languageBytes.prefix(8)))
-        header.u32(UInt32(surfaces.count))
-        header.u32(UInt32(tnod.count / 12))
+        header.u32(UInt32(wordCount))
+        header.u32(UInt32(trieNodeCount))
         header.u32(UInt32(sections.count))
         header.u32(0) // reserved
-        header.u64(buildUnixTime)
-        header.f32(Float(uniMinLog10))
-        header.f32(Float(KLMFormat.defaultBiMinLog10))
-        header.f32(Float(KLMFormat.defaultTriMinLog10))
+        header.u64(options.buildUnixTime)
+        header.f32(Float(options.uniMinLog10))
+        header.f32(Float(options.biMinLog10))
+        header.f32(Float(options.triMinLog10))
         header.raw([UInt8](repeating: 0, count: 12))
         precondition(header.count == KLMFormat.headerSize, "header must be exactly \(KLMFormat.headerSize) bytes")
 
@@ -141,8 +326,12 @@ public enum KLMWriter {
         return Data(file.bytes)
     }
 
-    private static func buildTrieSections(matchKeys: [String], scores: [UInt8]) throws -> (tnod: [UInt8], ttrm: [UInt8]) {
-        let root = TrieBuilder.build(matchKeys: matchKeys, scores: scores)
+    private static func buildTrieSections(
+        matchKeys: [String],
+        scores: [UInt8],
+        hiddenIDs: Set<UInt32>
+    ) throws -> (tnod: [UInt8], ttrm: [UInt8]) {
+        let root = TrieBuilder.build(matchKeys: matchKeys, scores: scores, hiddenIDs: hiddenIDs)
 
         struct PendingNode {
             let index: Int
@@ -220,10 +409,10 @@ public enum KLMWriter {
     }
 }
 
-private func littleEndianBytes(_ value: UInt32) -> [UInt8] {
+func littleEndianBytes(_ value: UInt32) -> [UInt8] {
     (0 ..< 4).map { UInt8((value >> ($0 * 8)) & 0xFF) }
 }
 
-private func littleEndianBytes(_ value: UInt16) -> [UInt8] {
+func littleEndianBytes(_ value: UInt16) -> [UInt8] {
     (0 ..< 2).map { UInt8((value >> ($0 * 8)) & 0xFF) }
 }

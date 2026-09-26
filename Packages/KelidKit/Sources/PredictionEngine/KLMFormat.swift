@@ -25,6 +25,13 @@ public enum KLMFormat {
     public enum WordFlags {
         public static let offensive: UInt8 = 1 << 0
         public static let containsZWNJ: UInt8 = 1 << 1
+        /// Task 8.1: "`<s>` is a hidden vocabulary entry (never suggested)"
+        /// — set for any word that must have an id (so n-gram tables can
+        /// reference it) but must never be reachable as a completion.
+        /// `KLMWriter` enforces this by simply never inserting a hidden
+        /// word into the trie at all, so `hidden` itself is only consulted
+        /// by tooling (`klm inspect`) that wants to say so explicitly.
+        public static let hidden: UInt8 = 1 << 2
     }
 
     /// Section FourCC tags, stored as their 4 ASCII bytes packed

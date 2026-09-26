@@ -3,7 +3,16 @@ fixtures (not the real multi-MB Unicode/CLDR downloads)."""
 
 from __future__ import annotations
 
-from pipeline.emoji import build_emoji_catalog, build_suggest_tables
+import json
+from pathlib import Path
+
+from pipeline.emoji import (
+    build_emoji_catalog,
+    build_suggest_tables,
+    compile_suggest_resources,
+    parse_suggest_tsv,
+    write_suggest_json,
+)
 
 _FIXTURE_EMOJI_TEST = """\
 # group: Smileys & Emotion
@@ -90,3 +99,33 @@ def test_build_suggest_tables_caps_at_three_and_dedupes() -> None:
     tables = build_suggest_tables(catalog)
     assert tables["fa"]["خنده"] == ["🙂", "😀", "😄"]
     assert tables["en"]["smile"] == ["🙂", "😀", "😄"]
+
+
+def test_write_suggest_json_sorts_keys_and_round_trips(tmp_path: Path) -> None:
+    dest = tmp_path / "emoji_suggest_en.json"
+    write_suggest_json({"zebra": ["🦓"], "apple": ["🍎", "🍏"]}, dest)
+    loaded = json.loads(dest.read_text(encoding="utf-8"))
+    assert loaded == {"zebra": ["🦓"], "apple": ["🍎", "🍏"]}
+    assert list(loaded.keys()) == ["apple", "zebra"]  # sorted
+
+
+def test_parse_suggest_tsv_is_the_inverse_of_the_tsv_writer(tmp_path: Path) -> None:
+    tsv = tmp_path / "emoji_suggest_fa.tsv"
+    tsv.write_text("خنده\t🙂 😀 😄\nسیب\t🍎\n", encoding="utf-8")
+    table = parse_suggest_tsv(tsv)
+    assert table == {"خنده": ["🙂", "😀", "😄"], "سیب": ["🍎"]}
+
+
+def test_compile_suggest_resources_reads_existing_tsvs_without_network(tmp_path: Path) -> None:
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    emoji_data_dir = tmp_path / "EmojiData"
+    (out_dir / "emoji_suggest_fa.tsv").write_text("خنده\t🙂\n", encoding="utf-8")
+    (out_dir / "emoji_suggest_en.tsv").write_text("smile\t🙂\n", encoding="utf-8")
+
+    compile_suggest_resources(out_dir=out_dir, emoji_data_dir=emoji_data_dir)
+
+    fa = json.loads((emoji_data_dir / "emoji_suggest_fa.json").read_text(encoding="utf-8"))
+    en = json.loads((emoji_data_dir / "emoji_suggest_en.json").read_text(encoding="utf-8"))
+    assert fa == {"خنده": ["🙂"]}
+    assert en == {"smile": ["🙂"]}

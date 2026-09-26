@@ -44,6 +44,15 @@ def test_classify_token_replaces_numbers() -> None:
     assert classify_token("hello") == "hello"
 
 
+def test_classify_token_normalizes_word_tokens() -> None:
+    """Task 6.6 is "normalize and tokenize" as one step — the counting
+    pipeline must see canonical forms, or "كتاب" and "کتاب" (an Arabic-kaf
+    variant vs. the real Persian letter) end up as two separate n-grams for
+    no good reason."""
+    assert classify_token("كتاب") == "کتاب"
+    assert classify_token("سلامـــ") == "سلام"  # tatweel removed too
+
+
 def test_classify_token_replaces_urls_and_emails() -> None:
     assert classify_token("https://example.com") == "<url>"
     assert classify_token("www.example.com") == "<url>"

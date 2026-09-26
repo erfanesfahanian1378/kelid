@@ -22,5 +22,14 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
+        .testTarget(
+            name: "klmTests",
+            dependencies: [
+                "klm",
+                .product(name: "PredictionEngine", package: "KelidKit"),
+                .product(name: "PersianText", package: "KelidKit"),
+                .product(name: "KelidCore", package: "KelidKit"),
+            ]
+        ),
     ]
 )

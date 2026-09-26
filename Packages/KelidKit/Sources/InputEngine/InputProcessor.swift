@@ -7,6 +7,14 @@ import PersianText
 /// (§6.4.4's smart punctuation spacing).
 private let smartPunctuationTriggers: Set<Character> = [".", ",", "!", "?", ";", ":", "،", "؛", "؟", ")", "»", "…"]
 
+/// Task 8.6: whether `char` is one of §6.7.9's punctuation separators
+/// ("space, punctuation, return") that can trigger the autocorrect
+/// decision — the same set §6.4.4's smart-punctuation-spacing rule already
+/// treats as separators, reused here so the two lists can't drift apart.
+public func isAutocorrectSeparatorCharacter(_ char: Character) -> Bool {
+    smartPunctuationTriggers.contains(char)
+}
+
 /// Sentence-ending punctuation (§6.4.3/§6.6.3). Not `private`: shared with
 /// `InputProcessor+Context.swift` (a separate file, split out to keep
 /// `InputProcessor`'s body under SwiftLint's `type_body_length`) — `private`
@@ -39,6 +47,12 @@ public final class InputProcessor {
     /// Not `private`: `InputProcessor+EditActions.swift` sets this from
     /// `insertSuggestion` too.
     var autoSpacePending = false
+    /// §6.4.6's "the previous action was an autocorrection, and nothing
+    /// changed since" — set by `applyAutocorrect`, consumed (and cleared)
+    /// by the very next backspace tap if it comes immediately after, and
+    /// cleared by any other action in between (mirrors `autoSpacePending`'s
+    /// own clearing pattern in `handle(_:in:)`).
+    var lastAutocorrection: (original: String, corrected: String, separator: String)?
     /// Not `private`: `InputProcessor+Context.swift` reads this too.
     var currentLanguage: LanguageID
     /// `internal` (not `private`): `InputProcessor+EditActions.swift` (a
@@ -160,6 +174,10 @@ public final class InputProcessor {
             effects += insertSuggestion(suggestion, in: doc)
             clearsAutoSpace = false // insertSuggestion sets autoSpacePending itself, same reasoning as .space
 
+        case let .applyAutocorrect(corrected, separator):
+            effects += applyAutocorrect(corrected: corrected, separator: separator, in: doc)
+            clearsAutoSpace = false // applyAutocorrect sets autoSpacePending itself, same reasoning as .space
+
         case let .insertClip(text):
             effects += insertClip(text, in: doc)
             effects.append(.requestSuggestions)
@@ -184,6 +202,19 @@ public final class InputProcessor {
 
         if clearsAutoSpace, action != .backspace {
             autoSpacePending = false
+        }
+        // §6.4.6: a revert only fires when backspace comes *immediately*
+        // after the autocorrection — any other action in between invalidates
+        // it. `.backspace` itself is excluded because `performBackspace`
+        // already consumes `lastAutocorrection` for itself (either reverting
+        // it or, if unset, doing a plain delete); `.applyAutocorrect` is
+        // excluded because it's what just *set* `lastAutocorrection` above,
+        // in this very call.
+        switch action {
+        case .backspace, .applyAutocorrect:
+            break
+        default:
+            lastAutocorrection = nil
         }
 
         context = computeContext(doc: doc)
@@ -325,6 +356,25 @@ public final class InputProcessor {
     // is file-scoped in Swift, and that extension lives in a different file.)
 
     func performBackspace(in doc: TextDocument) -> [InputEffect] {
+        // §6.4.6/§6.7.9 rule 6: "if the previous action was an
+        // autocorrection and nothing changed since, revert it (restore the
+        // typed word...)" — read literally against §6.7.9's own mechanics
+        // ("deletes b + separator and inserts t, no separator"), since
+        // that's the section with the exact before/after text; §6.4.6's
+        // gloss ("...and the separator") describes reverting the whole
+        // autocorrection *event* (which included typing the separator),
+        // not that the separator comes back too.
+        if let last = lastAutocorrection {
+            lastAutocorrection = nil
+            let toDelete = last.corrected + last.separator
+            for _ in toDelete {
+                doc.deleteBackward()
+            }
+            shadowBuffer.recordDeletion(count: toDelete.count)
+            doc.insertText(last.original)
+            shadowBuffer.recordInsertion(last.original)
+            return []
+        }
         doc.deleteBackward()
         shadowBuffer.recordDeletion()
         return []

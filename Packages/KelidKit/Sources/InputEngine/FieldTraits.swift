@@ -77,6 +77,10 @@ public struct FieldTraits: Sendable, Equatable {
     public var spellChecking: SpellCheckingTrait
     public var keyboardAppearance: KeyboardAppearanceTrait
     public var textContentType: String?
+    /// `UITextInputTraits.isSecureTextEntry` — task 8.6's §6.7.9 rule 1
+    /// ("not sensitive") reads this to keep autocorrect off in password
+    /// fields, same spirit as ClipboardKit's own password-like detection.
+    public var isSensitive: Bool
 
     public init(
         keyboardType: KeyboardTypeTrait = .default,
@@ -85,7 +89,8 @@ public struct FieldTraits: Sendable, Equatable {
         autocorrection: AutocorrectionTrait = .default,
         spellChecking: SpellCheckingTrait = .default,
         keyboardAppearance: KeyboardAppearanceTrait = .default,
-        textContentType: String? = nil
+        textContentType: String? = nil,
+        isSensitive: Bool = false
     ) {
         self.keyboardType = keyboardType
         self.returnKeyType = returnKeyType
@@ -94,7 +99,14 @@ public struct FieldTraits: Sendable, Equatable {
         self.spellChecking = spellChecking
         self.keyboardAppearance = keyboardAppearance
         self.textContentType = textContentType
+        self.isSensitive = isSensitive
     }
 
     public static let `default` = FieldTraits()
+
+    /// §6.7.9 rule 1 (task 8.6): "The field allows it (`autocorrectionType
+    /// != .no`, not sensitive)."
+    public var allowsAutocorrect: Bool {
+        autocorrection != .no && !isSensitive
+    }
 }

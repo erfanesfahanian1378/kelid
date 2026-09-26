@@ -15,10 +15,15 @@ final class TrieBuildNode {
 }
 
 enum TrieBuilder {
-    /// `matchKeys[i]`/`scores[i]` are indexed by word ID `i`.
-    static func build(matchKeys: [String], scores: [UInt8]) -> TrieBuildNode {
+    /// `matchKeys[i]`/`scores[i]` are indexed by word ID `i`. Ids in
+    /// `hiddenIDs` (task 8.1's "`<s>` is a hidden vocabulary entry") are
+    /// skipped entirely — not inserted at any trie path, including the
+    /// root — so they can never come back from `completions(prefixKey:)`,
+    /// while still keeping their real word id for `BIDX`/`BENT`/`TIDX`/`TENT`
+    /// to reference.
+    static func build(matchKeys: [String], scores: [UInt8], hiddenIDs: Set<UInt32> = []) -> TrieBuildNode {
         let root = TrieBuildNode(label: 0)
-        for id in 0 ..< matchKeys.count {
+        for id in 0 ..< matchKeys.count where !hiddenIDs.contains(UInt32(id)) {
             var node = root
             for unit in matchKeys[id].utf16 {
                 if let existing = node.children[unit] {

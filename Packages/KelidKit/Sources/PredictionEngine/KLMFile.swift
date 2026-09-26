@@ -49,6 +49,8 @@ public final class KLMFile: @unchecked Sendable {
     public let hasBigrams: Bool
     public let hasTrigrams: Bool
     public let uniMinLog10: Double
+    public let biMinLog10: Double
+    public let triMinLog10: Double
     public let buildUnixTime: UInt64
 
     private let fileDescriptor: Int32
@@ -63,6 +65,11 @@ public final class KLMFile: @unchecked Sendable {
     private let wflgSection: Section
     private let tnodSection: Section
     private let ttrmSection: Section?
+    /// Task 8.1: present only when `hasBigrams`/`hasTrigrams`.
+    private let bidxSection: Section?
+    private let bentSection: Section?
+    private let tidxSection: Section?
+    private let tentSection: Section?
 
     private struct Section {
         let offset: Int
@@ -82,6 +89,8 @@ public final class KLMFile: @unchecked Sendable {
         let hasBigrams: Bool
         let hasTrigrams: Bool
         let uniMinLog10: Double
+        let biMinLog10: Double
+        let triMinLog10: Double
         let buildUnixTime: UInt64
         let wstrSection: Section
         let woffSection: Section
@@ -89,6 +98,10 @@ public final class KLMFile: @unchecked Sendable {
         let wflgSection: Section
         let tnodSection: Section
         let ttrmSection: Section?
+        let bidxSection: Section?
+        let bentSection: Section?
+        let tidxSection: Section?
+        let tentSection: Section?
     }
 
     public init(path: String) throws {
@@ -133,12 +146,18 @@ public final class KLMFile: @unchecked Sendable {
         wflgSection = parsed.wflgSection
         tnodSection = parsed.tnodSection
         ttrmSection = parsed.ttrmSection
+        bidxSection = parsed.bidxSection
+        bentSection = parsed.bentSection
+        tidxSection = parsed.tidxSection
+        tentSection = parsed.tentSection
         language = LanguageID(rawValue: parsed.languageString)
         wordCount = parsed.wordCount
         nodeCount = parsed.nodeCount
         hasBigrams = parsed.hasBigrams
         hasTrigrams = parsed.hasTrigrams
         uniMinLog10 = parsed.uniMinLog10
+        biMinLog10 = parsed.biMinLog10
+        triMinLog10 = parsed.triMinLog10
         buildUnixTime = parsed.buildUnixTime
         didSucceed = true
     }
@@ -161,6 +180,8 @@ public final class KLMFile: @unchecked Sendable {
         let sectionCount = Int(base.loadUnaligned(fromByteOffset: 24, as: UInt32.self))
         let buildUnixTime = base.loadUnaligned(fromByteOffset: 32, as: UInt64.self)
         let uniMinLog10 = Double(base.loadUnaligned(fromByteOffset: 40, as: Float.self))
+        let biMinLog10 = Double(base.loadUnaligned(fromByteOffset: 44, as: Float.self))
+        let triMinLog10 = Double(base.loadUnaligned(fromByteOffset: 48, as: Float.self))
 
         let sections = try parseSectionDirectory(base: base, length: length, sectionCount: sectionCount)
 
@@ -176,20 +197,39 @@ public final class KLMFile: @unchecked Sendable {
 
         try validateWordOffsets(base: base, woffSection: woffSection, wstrSection: wstrSection, wordCount: wordCount)
 
+        let hasBigrams = flags & KLMFormat.Flags.hasBigrams != 0
+        let hasTrigrams = flags & KLMFormat.Flags.hasTrigrams != 0
+        if hasBigrams {
+            guard sections[KLMFormat.SectionTag.bidx] != nil, sections[KLMFormat.SectionTag.bent] != nil else {
+                throw OpenError.missingSection("BIDX/BENT")
+            }
+        }
+        if hasTrigrams {
+            guard sections[KLMFormat.SectionTag.tidx] != nil, sections[KLMFormat.SectionTag.tent] != nil else {
+                throw OpenError.missingSection("TIDX/TENT")
+            }
+        }
+
         return ParsedFile(
             languageString: languageString,
             wordCount: wordCount,
             nodeCount: nodeCount,
-            hasBigrams: flags & KLMFormat.Flags.hasBigrams != 0,
-            hasTrigrams: flags & KLMFormat.Flags.hasTrigrams != 0,
+            hasBigrams: hasBigrams,
+            hasTrigrams: hasTrigrams,
             uniMinLog10: uniMinLog10,
+            biMinLog10: biMinLog10,
+            triMinLog10: triMinLog10,
             buildUnixTime: buildUnixTime,
             wstrSection: wstrSection,
             woffSection: woffSection,
             wscrSection: wscrSection,
             wflgSection: wflgSection,
             tnodSection: tnodSection,
-            ttrmSection: sections[KLMFormat.SectionTag.ttrm]
+            ttrmSection: sections[KLMFormat.SectionTag.ttrm],
+            bidxSection: sections[KLMFormat.SectionTag.bidx],
+            bentSection: sections[KLMFormat.SectionTag.bent],
+            tidxSection: sections[KLMFormat.SectionTag.tidx],
+            tentSection: sections[KLMFormat.SectionTag.tent]
         )
     }
 
@@ -255,6 +295,14 @@ public final class KLMFile: @unchecked Sendable {
         KLMFormat.dequantize(score(id), minLog10: uniMinLog10)
     }
 
+    public func log10BigramProbability(_ quantizedScore: UInt8) -> Double {
+        KLMFormat.dequantize(quantizedScore, minLog10: biMinLog10)
+    }
+
+    public func log10TrigramProbability(_ quantizedScore: UInt8) -> Double {
+        KLMFormat.dequantize(quantizedScore, minLog10: triMinLog10)
+    }
+
     public func flags(_ id: UInt32) -> UInt8 {
         boundsCheck(id, in: wordCount)
         return base.load(fromByteOffset: wflgSection.offset + Int(id), as: UInt8.self)
@@ -300,5 +348,69 @@ public final class KLMFile: @unchecked Sendable {
         #if DEBUG
             precondition(Int(id) < count, "word id \(id) out of bounds (count=\(count))")
         #endif
+    }
+
+    // MARK: - N-gram access (task 8.1/8.2)
+
+    /// `(next word id, quantized score)` pairs for the bigram context `w1`,
+    /// best-first (already sorted that way at build time) — empty if the
+    /// file has no bigrams or `w1` was never a bigram context.
+    func bigramCandidates(forContext w1: UInt32) -> [(next: UInt32, score: UInt8)] {
+        guard let bidx = bidxSection, let bent = bentSection else { return [] }
+        let entryCount = bidx.length / 12
+        var low = 0
+        var high = entryCount - 1
+        while low <= high {
+            let mid = (low + high) / 2
+            let entryOffset = bidx.offset + mid * 12
+            let ctx = base.loadUnaligned(fromByteOffset: entryOffset, as: UInt32.self)
+            if ctx == w1 {
+                let start = Int(base.loadUnaligned(fromByteOffset: entryOffset + 4, as: UInt32.self))
+                let count = Int(base.loadUnaligned(fromByteOffset: entryOffset + 8, as: UInt16.self))
+                return readNGramEntries(section: bent, start: start, count: count)
+            } else if ctx < w1 {
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return []
+    }
+
+    /// Same as `bigramCandidates(forContext:)` but for the trigram context
+    /// `(w1, w2)`.
+    func trigramCandidates(forContext w1: UInt32, _ w2: UInt32) -> [(next: UInt32, score: UInt8)] {
+        guard let tidx = tidxSection, let tent = tentSection else { return [] }
+        let entryCount = tidx.length / 16
+        var low = 0
+        var high = entryCount - 1
+        while low <= high {
+            let mid = (low + high) / 2
+            let entryOffset = tidx.offset + mid * 16
+            let ctx1 = base.loadUnaligned(fromByteOffset: entryOffset, as: UInt32.self)
+            let ctx2 = base.loadUnaligned(fromByteOffset: entryOffset + 4, as: UInt32.self)
+            if ctx1 == w1, ctx2 == w2 {
+                let start = Int(base.loadUnaligned(fromByteOffset: entryOffset + 8, as: UInt32.self))
+                let count = Int(base.loadUnaligned(fromByteOffset: entryOffset + 12, as: UInt16.self))
+                return readNGramEntries(section: tent, start: start, count: count)
+            } else if (ctx1, ctx2) < (w1, w2) {
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return []
+    }
+
+    private func readNGramEntries(section: Section, start: Int, count: Int) -> [(next: UInt32, score: UInt8)] {
+        var results: [(next: UInt32, score: UInt8)] = []
+        results.reserveCapacity(count)
+        for i in 0 ..< count {
+            let entryOffset = section.offset + (start + i) * 8
+            let next = base.loadUnaligned(fromByteOffset: entryOffset, as: UInt32.self)
+            let score = base.load(fromByteOffset: entryOffset + 4, as: UInt8.self)
+            results.append((next, score))
+        }
+        return results
     }
 }

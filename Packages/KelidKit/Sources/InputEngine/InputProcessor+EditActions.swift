@@ -75,6 +75,50 @@ extension InputProcessor {
         return effects
     }
 
+    // MARK: - Autocorrect (task 8.6, §6.7.9)
+
+    /// Replaces `context.prefix` (the just-typed word `t`) with `corrected`,
+    /// then `separator` — the same delete-prefix/verify-remainder resilience
+    /// as `insertSuggestion` above, since both are "replace the word the
+    /// user just typed with something else." Remembers `lastAutocorrection`
+    /// for `performBackspace`'s revert (§6.4.6).
+    func applyAutocorrect(corrected: String, separator: String, in doc: TextDocument) -> [InputEffect] {
+        let before = doc.contextBefore ?? shadowBuffer.contents
+        let original = context.prefix
+        for _ in original {
+            doc.deleteBackward()
+        }
+        shadowBuffer.recordDeletion(count: original.count)
+
+        let expectedRemainder = String(before.dropLast(original.count))
+        var actualRemainder = doc.contextBefore ?? ""
+        var extraAttempts = 0
+        while actualRemainder != expectedRemainder, expectedRemainder.hasPrefix(actualRemainder), extraAttempts < 4 {
+            let overDeleted = String(expectedRemainder.dropFirst(actualRemainder.count))
+            doc.insertText(overDeleted)
+            shadowBuffer.recordInsertion(overDeleted)
+            actualRemainder = doc.contextBefore ?? ""
+            extraAttempts += 1
+        }
+
+        var actuallyDeleted = original
+        if before.hasPrefix(actualRemainder), before.count > actualRemainder.count {
+            actuallyDeleted = String(before.dropFirst(actualRemainder.count))
+        }
+
+        let replacement = corrected + separator
+        doc.insertText(replacement)
+        shadowBuffer.recordInsertion(replacement)
+        autoSpacePending = separator == " "
+        pushUndo(.replaced(deleted: actuallyDeleted, inserted: replacement))
+        lastAutocorrection = (original: original, corrected: corrected, separator: separator)
+
+        var effects = resolveShiftAfterInsertion()
+        effects.append(.autocorrected(Autocorrection(original: original, corrected: corrected, separator: separator)))
+        effects.append(.requestSuggestions)
+        return effects
+    }
+
     // MARK: - Edit panel: Copy/Cut/Paste (§6.4.9)
 
     /// `InputProcessor` has no pasteboard access (rule 5.1.5) — this only

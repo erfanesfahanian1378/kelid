@@ -74,6 +74,7 @@
                 direction: direction,
                 isLanguageRTL: state.language == .fa
             )
+            updateFuzzyProximity(from: computed)
         }
 
         /// `internal`, not `private` — `systemAppearance`'s `didSet` in the

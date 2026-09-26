@@ -22,7 +22,8 @@ from urllib.request import urlopen
 
 _ROOT = Path(__file__).resolve().parents[1]
 _OUT_DIR = _ROOT / "out"
-_EMOJI_DATA_DEST = _ROOT.parent.parent / "Packages" / "KelidKit" / "Sources" / "EmojiData" / "emoji.json"
+_EMOJI_DATA_DIR = _ROOT.parent.parent / "Packages" / "KelidKit" / "Sources" / "EmojiData"
+_EMOJI_DATA_DEST = _EMOJI_DATA_DIR / "emoji.json"
 _DOCS_DIR = _ROOT.parent.parent / "docs"
 
 _EMOJI_TEST_URL = "https://unicode.org/Public/emoji/latest/emoji-test.txt"
@@ -185,7 +186,39 @@ def build_suggest_tables(catalog: list[dict]) -> dict[str, dict[str, list[str]]]
     return tables
 
 
-def run(dest: Path = _EMOJI_DATA_DEST, out_dir: Path = _OUT_DIR) -> list[dict]:
+def parse_suggest_tsv(path: Path) -> dict[str, list[str]]:
+    """The inverse of the TSV writing below — used to recompile task 8.7's
+    JSON resource from an already-fetched TSV without hitting the network
+    again (`--compile-only`)."""
+    table: dict[str, list[str]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        keyword, _, emojis = line.partition("\t")
+        table[keyword] = emojis.split(" ")
+    return table
+
+
+def write_suggest_json(table: dict[str, list[str]], dest: Path) -> None:
+    """Task 8.7 (§6.7.10): "compiled into a small sorted binary or JSON and
+    loaded lazily" — a single compact `{keyword: [emoji, ...]}` object,
+    keys pre-sorted so a reader could binary-search if it ever needed to,
+    bundled as an `EmojiData` package resource next to `emoji.json`."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open("w", encoding="utf-8") as f:
+        json.dump(dict(sorted(table.items())), f, ensure_ascii=False, separators=(",", ":"))
+
+
+def compile_suggest_resources(out_dir: Path = _OUT_DIR, emoji_data_dir: Path = _EMOJI_DATA_DIR) -> None:
+    """Recompiles `emoji_suggest_{fa,en}.json` from the TSVs already sitting
+    in `out_dir` (written by a previous full `run()`), with no network
+    access — the `--compile-only` CLI path."""
+    for lang in _ANNOTATION_LANGS:
+        table = parse_suggest_tsv(out_dir / f"emoji_suggest_{lang}.tsv")
+        write_suggest_json(table, emoji_data_dir / f"emoji_suggest_{lang}.json")
+
+
+def run(dest: Path = _EMOJI_DATA_DEST, out_dir: Path = _OUT_DIR, emoji_data_dir: Path = _EMOJI_DATA_DIR) -> list[dict]:
     emoji_test_text = _fetch_text(_EMOJI_TEST_URL)
     annotation_texts = {}
     for lang in _ANNOTATION_LANGS:
@@ -204,6 +237,7 @@ def run(dest: Path = _EMOJI_DATA_DEST, out_dir: Path = _OUT_DIR) -> list[dict]:
         with (out_dir / f"emoji_suggest_{lang}.tsv").open("w", encoding="utf-8") as f:
             for keyword, emojis in sorted(table.items()):
                 f.write(f"{keyword}\t{' '.join(emojis)}\n")
+        write_suggest_json(table, emoji_data_dir / f"emoji_suggest_{lang}.json")
 
     _append_attribution()
     return catalog
@@ -231,8 +265,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dest", type=Path, default=_EMOJI_DATA_DEST)
     parser.add_argument("--out-dir", type=Path, default=_OUT_DIR)
+    parser.add_argument("--emoji-data-dir", type=Path, default=_EMOJI_DATA_DIR)
+    parser.add_argument(
+        "--compile-only",
+        action="store_true",
+        help="Recompile emoji_suggest_{fa,en}.json from the TSVs already in --out-dir, without fetching anything.",
+    )
     args = parser.parse_args()
-    catalog = run(dest=args.dest, out_dir=args.out_dir)
+    if args.compile_only:
+        compile_suggest_resources(out_dir=args.out_dir, emoji_data_dir=args.emoji_data_dir)
+        print(f"Recompiled emoji_suggest_{{fa,en}}.json into {args.emoji_data_dir}")
+        return
+    catalog = run(dest=args.dest, out_dir=args.out_dir, emoji_data_dir=args.emoji_data_dir)
     size_kb = args.dest.stat().st_size / 1024
     print(f"Wrote {len(catalog)} emoji to {args.dest} ({size_kb:.1f} KB)")
 

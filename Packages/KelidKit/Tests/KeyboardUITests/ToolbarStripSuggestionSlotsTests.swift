@@ -50,6 +50,33 @@
             #expect(slots.allSatisfy { !$0.isBold })
         }
 
+        @Test("the center slot is bold when it matches the autocorrect candidate (task 8.6, §6.7.5)")
+        func centerSlotBoldWhenAutocorrectCandidate() {
+            let result = SuggestionResult(
+                verbatim: SuggestionCandidate(text: "teh"),
+                items: [SuggestionCandidate(text: "the"), SuggestionCandidate(text: "then")],
+                autocorrect: SuggestionCandidate(text: "the"),
+                emoji: []
+            )
+            let slots = ToolbarStripView.slots(for: result)
+            #expect(slots.map(\.text) == ["teh", "the", "then"])
+            #expect(!slots[0].isBold) // verbatim itself is never bold here (best != verbatim)
+            #expect(slots[1].isBold) // center = best = the autocorrect candidate
+            #expect(!slots[2].isBold)
+        }
+
+        @Test("the center slot is not bold when there's no autocorrect candidate")
+        func centerSlotNotBoldWithoutAutocorrect() {
+            let result = SuggestionResult(
+                verbatim: SuggestionCandidate(text: "teh"),
+                items: [SuggestionCandidate(text: "the"), SuggestionCandidate(text: "then")],
+                autocorrect: nil,
+                emoji: []
+            )
+            let slots = ToolbarStripView.slots(for: result)
+            #expect(slots.allSatisfy { !$0.isBold })
+        }
+
         @Test("no verbatim slot (showVerbatimSlot off) just shows up to 3 items plain")
         func noVerbatimShowsItemsOnly() {
             let result = SuggestionResult(
@@ -112,6 +139,45 @@
             #expect(buttons.map { $0.title(for: .normal) } == ["hel", "hello", "help"])
             buttons.first?.sendActions(for: .touchUpInside)
             #expect(tappedSlotIndices == [0])
+        }
+
+        @Test(
+            "a non-empty emoji list shows the trailing compact slot with the first (best) emoji, and tapping it fires onTapEmoji (task 8.7)"
+        )
+        @MainActor
+        func emojiSlotShowsBestEmojiAndFiresCallback() {
+            let toolbar = ToolbarStripView(frame: CGRect(x: 0, y: 0, width: 300, height: 40))
+            var tappedEmoji: String?
+            toolbar.onTapEmoji = { tappedEmoji = $0 }
+
+            let result = SuggestionResult(
+                verbatim: SuggestionCandidate(text: "hap"),
+                items: [SuggestionCandidate(text: "happy")],
+                autocorrect: nil,
+                emoji: ["😀", "😃"]
+            )
+            toolbar.applySuggestions(result, isRTL: false)
+            toolbar.layoutIfNeeded()
+
+            #expect(!toolbar.emojiSlotButton.isHidden)
+            #expect(toolbar.emojiSlotButton.title(for: .normal) == "😀") // best (first) of the up-to-3 candidates
+            toolbar.emojiSlotButton.sendActions(for: .touchUpInside)
+            #expect(tappedEmoji == "😀")
+        }
+
+        @Test("an empty emoji list shows no emoji slot")
+        @MainActor
+        func emptyEmojiListShowsNoSlot() {
+            let toolbar = ToolbarStripView(frame: CGRect(x: 0, y: 0, width: 300, height: 40))
+            let result = SuggestionResult(
+                verbatim: SuggestionCandidate(text: "hap"),
+                items: [SuggestionCandidate(text: "happy")],
+                autocorrect: nil,
+                emoji: []
+            )
+            toolbar.applySuggestions(result, isRTL: false)
+            toolbar.layoutIfNeeded()
+            #expect(toolbar.emojiSlotButton.isHidden)
         }
     }
 #endif

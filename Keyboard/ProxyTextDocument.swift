@@ -59,7 +59,8 @@ final class ProxyTextDocument: TextDocument {
             autocorrection: Self.map(proxy.autocorrectionType),
             spellChecking: Self.map(proxy.spellCheckingType),
             keyboardAppearance: Self.map(proxy.keyboardAppearance),
-            textContentType: proxy.textContentType?.rawValue
+            textContentType: proxy.textContentType?.rawValue,
+            isSensitive: proxy.isSecureTextEntry ?? false
         )
     }
 

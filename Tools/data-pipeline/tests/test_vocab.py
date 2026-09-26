@@ -22,8 +22,9 @@ _TEN_ENGLISH_WORDS = ["the", "and", "you", "are", "for", "not", "but", "all", "c
 def test_select_vocabulary_respects_the_cap() -> None:
     counts = [(word, 1000 - i) for i, word in enumerate(_TEN_ENGLISH_WORDS)]
     vocab = select_vocabulary(counts, lang="en", cap=3)
-    assert len(vocab) == 3
-    assert set(vocab) == {"the", "and", "you"}  # the 3 highest-count words
+    # +1 for "<s>" (task 8.1: always present, doesn't count against the cap).
+    assert len(vocab) == 4
+    assert {"the", "and", "you"} <= set(vocab)  # the 3 highest-count real words
 
 
 def test_select_vocabulary_lilak_boost_survives_the_cap() -> None:
@@ -34,6 +35,20 @@ def test_select_vocabulary_lilak_boost_survives_the_cap() -> None:
     # the top-3 by frequency are still present too — the boost extends the
     # vocabulary rather than displacing higher-frequency words.
     assert {"the", "and", "you"} <= set(vocab)
+
+
+def test_select_vocabulary_always_includes_sentence_start_as_hidden() -> None:
+    """Task 8.1: "<s> is a hidden vocabulary entry" — needed so bigram/trigram
+    rows starting a sentence can still resolve a real word id for it, even
+    though it always fails the letters-only valid-token regex."""
+    counts = [("کتاب", 100), ("<s>", 500)]
+    vocab = select_vocabulary(counts, lang="fa")
+    assert vocab["<s>"] == {"count": 500, "flags": ["hidden"]}
+
+
+def test_select_vocabulary_sentence_start_present_even_with_no_real_count() -> None:
+    vocab = select_vocabulary([("کتاب", 100)], lang="fa")
+    assert vocab["<s>"] == {"count": 0, "flags": ["hidden"]}
 
 
 def test_select_vocabulary_flags_offensive_words_without_dropping_them() -> None:

@@ -51,10 +51,19 @@ public struct CommitEvent: Sendable, Equatable {
     public let language: LanguageID
 }
 
-/// Placeholder — Phase 8 gives this the real before/after/reason fields.
+/// §6.7.9's autocorrect event (task 8.6) — `separator` is what was typed to
+/// trigger it (space, return, or a punctuation character), needed so a
+/// revert (§6.4.6/§6.7.9 rule 6) knows exactly how much to delete.
 public struct Autocorrection: Sendable, Equatable {
     public let original: String
     public let corrected: String
+    public let separator: String
+
+    public init(original: String, corrected: String, separator: String) {
+        self.original = original
+        self.corrected = corrected
+        self.separator = separator
+    }
 }
 
 public enum ToastKind: Sendable, Equatable {

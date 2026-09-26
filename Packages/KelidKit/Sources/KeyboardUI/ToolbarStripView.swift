@@ -25,12 +25,27 @@
         /// just proves the gesture path exists.
         var onLongPressSuggestionSlot: ((Int) -> Void)?
 
+        /// Task 8.7 (§6.7.5): "Emoji (if any) get a compact 44 pt slot at
+        /// the far trailing edge." Only the single best match is shown —
+        /// `emoji.json`'s own suggestion tables are already capped at 3 per
+        /// keyword, most-common-first, so `.first` is the best one.
+        private let emojiButton = UIButton(type: .system)
+        private static let emojiSlotWidth: CGFloat = 44
+        private var isEmojiSlotVisible = false
+        private var isCurrentLayoutRTL = false
+        var onTapEmoji: ((String) -> Void)?
+
         /// Test-only seam (`@testable import` only relaxes `internal`, not
         /// `private`, across files) — the suggestion buttons in their
         /// current *visual* left-to-right order, for asserting RTL
         /// mirroring without a full rendered-view snapshot.
         var suggestionStackArrangedButtons: [UIButton] {
             suggestionStack.arrangedSubviews.compactMap { $0 as? UIButton }
+        }
+
+        /// Test-only seam, same reasoning as `suggestionStackArrangedButtons`.
+        var emojiSlotButton: UIButton {
+            emojiButton
         }
 
         var onTapResize: (() -> Void)?
@@ -76,6 +91,14 @@
             suggestionStack.distribution = .fillEqually
             suggestionStack.isHidden = true
             addSubview(suggestionStack)
+
+            emojiButton.titleLabel?.font = .systemFont(ofSize: 20)
+            emojiButton.isHidden = true
+            emojiButton.addAction(UIAction { [weak self] _ in
+                guard let self, let emoji = emojiButton.title(for: .normal) else { return }
+                onTapEmoji?(emoji)
+            }, for: .touchUpInside)
+            addSubview(emojiButton)
         }
 
         @available(*, unavailable)
@@ -92,7 +115,19 @@
             }
             let labelMaxX = buttons.last?.frame.minX ?? bounds.maxX
             label.frame = CGRect(x: 8, y: 0, width: max(0, labelMaxX - 8), height: bounds.height)
-            suggestionStack.frame = bounds
+
+            guard isEmojiSlotVisible else {
+                suggestionStack.frame = bounds
+                emojiButton.frame = .zero
+                return
+            }
+            // "The far trailing edge" — the right edge in LTR, the left edge
+            // in RTL (mirroring the whole bar, same as the suggestion slots
+            // themselves).
+            let emojiX = isCurrentLayoutRTL ? bounds.minX : bounds.maxX - Self.emojiSlotWidth
+            emojiButton.frame = CGRect(x: emojiX, y: 0, width: Self.emojiSlotWidth, height: bounds.height)
+            let suggestionX = isCurrentLayoutRTL ? Self.emojiSlotWidth : 0
+            suggestionStack.frame = CGRect(x: suggestionX, y: 0, width: max(0, bounds.width - Self.emojiSlotWidth), height: bounds.height)
         }
 
         func apply(style: KeyStyle) {
@@ -125,16 +160,28 @@
         /// reasoning `LayoutEngine`'s own `direction` parameter already
         /// uses elsewhere.
         func applySuggestions(_ result: SuggestionResult?, isRTL: Bool) {
+            isCurrentLayoutRTL = isRTL
             let slots = result.map(Self.slots(for:)) ?? []
             guard !slots.isEmpty else {
                 suggestionStack.isHidden = true
+                isEmojiSlotVisible = false
+                emojiButton.isHidden = true
                 label.isHidden = false
                 setIconButtons(hidden: false)
+                setNeedsLayout()
                 return
             }
             label.isHidden = true
             setIconButtons(hidden: true)
             suggestionStack.isHidden = false
+
+            let bestEmoji = result?.emoji.first
+            isEmojiSlotVisible = bestEmoji != nil
+            emojiButton.isHidden = bestEmoji == nil
+            if let bestEmoji {
+                emojiButton.setTitle(bestEmoji, for: .normal)
+            }
+            setNeedsLayout()
 
             suggestionStack.arrangedSubviews.forEach { suggestionStack.removeArrangedSubview($0); $0.removeFromSuperview() }
             suggestionButtons = slots.map { slot in
@@ -161,7 +208,9 @@
         /// §6.7.5's slot assembly: leading = verbatim, center = best,
         /// trailing = second-best — collapsed to `[verbatim(bold), 2nd,
         /// 3rd]` when the top-ranked item's text already equals the typed
-        /// text (so the same word never appears twice).
+        /// text (so the same word never appears twice). Task 8.6: the center
+        /// slot is also bold when it's the autocorrect candidate (§6.7.5:
+        /// "center = best (bold when it's the autocorrect candidate)").
         static func slots(for result: SuggestionResult) -> [(text: String, isBold: Bool)] {
             guard let verbatim = result.verbatim else {
                 return result.items.prefix(3).map { ($0.text, false) }
@@ -171,7 +220,10 @@
                 items.removeFirst()
                 return [(verbatim.text, true)] + items.prefix(2).map { ($0.text, false) }
             }
-            return [(verbatim.text, false)] + items.prefix(2).map { ($0.text, false) }
+            let bestIsAutocorrect = result.autocorrect.map { $0.text == items.first?.text } ?? false
+            return [(verbatim.text, false)] + items.prefix(2).enumerated().map { index, item in
+                (item.text, index == 0 && bestIsAutocorrect)
+            }
         }
 
         private func setIconButtons(hidden: Bool) {

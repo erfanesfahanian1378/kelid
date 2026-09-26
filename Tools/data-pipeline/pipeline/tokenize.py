@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from pipeline.normalize import canonical
+
 _ZWNJ = "‌"
 _ZWJ = "‍"
 _APOSTROPHES = {"'", "’"}
@@ -123,12 +125,17 @@ def word_tokenize(sentence: str) -> list[str]:
 
 def classify_token(token: str) -> str:
     """Returns `<num>` / `<url>` for tokens the counting step replaces, or
-    the token itself unchanged otherwise."""
+    the `canonical()`-normalized token otherwise — task 6.6 calls this whole
+    step "normalize and tokenize," and counting must see canonical forms
+    (e.g. "كتاب" and "کتاب" merged into one token) or the resulting n-grams
+    fragment across surface variants of the same word for no good reason.
+    `canonical()` is a no-op for punctuation/Latin tokens, so applying it
+    unconditionally (rather than only to "real words") is safe."""
     if _URL_OR_EMAIL_SCAN_RE.fullmatch(token):
         return "<url>"
     if _NUMBER_RE.match(token):
         return "<num>"
-    return token
+    return canonical(token)
 
 
 _PLACEHOLDER_RE = re.compile("(\\d+)")

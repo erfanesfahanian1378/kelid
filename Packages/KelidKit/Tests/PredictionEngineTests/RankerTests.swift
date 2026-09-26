@@ -67,6 +67,27 @@ struct RankerTests {
         let ranked = Ranker.rank(completions: completions, typedKey: "hi", lexicon: lexicon)
         #expect(ranked.first?.surface == "hi") // same frequency, but "hi" gets the exact-match bonus
     }
+
+    @Test("rank(fuzzy:) penalizes a candidate by its edit cost via the gamma term, unlike rank(completions:)'s always-0 cost")
+    func rankFuzzyPenalizesEditCost() throws {
+        let lexicon = try makeTestLexicon(unigrams: [UnigramEntry(surface: "hello", count: 100)])
+        let match = FuzzyMatch(wordID: 0, surface: "hello", score: lexicon.score(0), editCost: 1.0)
+        let ranked = Ranker.rank(fuzzy: [match], typedKey: "helo", lexicon: lexicon)
+        let completionRanked = Ranker.rank(
+            completions: [LexiconCompletion(wordID: 0, surface: "hello", score: lexicon.score(0))],
+            typedKey: "helo", lexicon: lexicon
+        )
+        // Same word, same typed key, but the fuzzy candidate carries a real
+        // (nonzero) edit cost -> its score must be strictly lower.
+        #expect(ranked[0].score < completionRanked[0].score)
+        // Exactly gamma (1.2 by default) * editCost (1.0) lower, in log10 space.
+        #expect(abs((completionRanked[0].score - ranked[0].score) - RankerConfig().gamma) < 0.0001)
+    }
+
+    @Test("RankerConfig's blending weight defaults to 0 (task 8.5's hook, wired in Phase 9)")
+    func rankerConfigPersonalWeightDefaultsToZero() {
+        #expect(RankerConfig().personalWeight == 0)
+    }
 }
 
 private func makeTestLexicon(unigrams: [UnigramEntry]) throws -> Lexicon {

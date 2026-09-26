@@ -1,5 +1,6 @@
 #if canImport(UIKit)
     import ClipboardKit
+    import EmojiData
     import Foundation
     import InputEngine
     import KelidCore
@@ -133,6 +134,11 @@
         /// request already superseded it is dropped instead of overwriting
         /// `state.suggestions` with stale content.
         var suggestionGeneration = 0
+        /// Task 8.7: `EmojiData`'s lazy keyword → emoji lookup. Kept
+        /// separate from `SuggestionService` (§4.2: `PredictionEngine`
+        /// doesn't depend on `EmojiData`) — `requestSuggestions()` merges
+        /// its result into `SuggestionResult.emoji` itself.
+        let emojiSuggester = EmojiSuggester()
 
         public init(
             settings: KeyboardSettings,
@@ -311,7 +317,7 @@
         /// buttons.
         func perform(_ action: InputAction) {
             guard state.mode != .resize else { return }
-            apply(inputProcessor.handle(action, in: documentProvider()))
+            apply(inputProcessor.handle(autocorrectedAction(for: action), in: documentProvider()))
         }
 
         func apply(_ effects: [InputEffect]) {
@@ -333,7 +339,13 @@
                 case .learn:
                     break // Phase 9
                 case .autocorrected:
-                    break // Phase 8
+                    // No UI reaction needed yet: `.requestSuggestions` (also
+                    // emitted by `applyAutocorrect`) already refreshes the
+                    // suggestion bar, and the revert itself is entirely
+                    // `InputProcessor`'s own state (§6.4.6) — a visual
+                    // "flash the corrected word" cue is Phase 11 polish
+                    // (deferred per this project's own guidance).
+                    break
                 case let .openPanel(panel):
                     state.mode = mode(for: panel)
                 case .nextInputMode:

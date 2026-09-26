@@ -36,6 +36,14 @@ public enum InputAction: Equatable, Sendable {
     case moveCursorWord(MoveDirection)
     case moveCursorLine(MoveDirection)
     case insertSuggestion(Suggestion)
+    /// Task 8.6: applies §6.7.9's autocorrect decision — replaces the
+    /// just-typed word (`InputProcessor.context.prefix`) with `corrected`,
+    /// then `separator`. Only `KeyboardUI` sends this — it's the one that
+    /// can reach `PredictionEngine` for the decision itself (§4.2), and
+    /// only when the mode is `.auto` and the field allows it (rule 1);
+    /// `InputProcessor` just applies it and remembers it for a possible
+    /// revert (§6.4.6).
+    case applyAutocorrect(corrected: String, separator: String)
     /// Already-resolved clip text (task 5.8) — like `.character`, this
     /// arrives pre-fetched: `InputProcessor` has no clipboard/database
     /// access of its own (rule 5.1.5-adjacent module boundary). Also used

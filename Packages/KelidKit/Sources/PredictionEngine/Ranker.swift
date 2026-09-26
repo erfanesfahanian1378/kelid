@@ -11,17 +11,25 @@ public struct RankerConfig: Sendable, Equatable {
     public var completionLengthCap: Int
     /// The `0.15` bonus when `k(w) == t` exactly.
     public var exactMatchBonus: Double
+    /// Task 8.5's blending hook: `λ` in `S(w|ctx) = λ·S_user + (1−λ)·S_lang`
+    /// (§6.7.5). Held at `0` — meaning `S(w|ctx) = S_lang` exactly, what
+    /// `score(...)` below already computes — until Phase 9's `UserModel`
+    /// exists to supply `S_user`; the field exists now so Phase 9 only has
+    /// to *use* it, not add it.
+    public var personalWeight: Double
 
     public init(
         gamma: Double = 1.2,
         completionLengthPenalty: Double = 0.05,
         completionLengthCap: Int = 6,
-        exactMatchBonus: Double = 0.15
+        exactMatchBonus: Double = 0.15,
+        personalWeight: Double = 0
     ) {
         self.gamma = gamma
         self.completionLengthPenalty = completionLengthPenalty
         self.completionLengthCap = completionLengthCap
         self.exactMatchBonus = exactMatchBonus
+        self.personalWeight = personalWeight
     }
 }
 
@@ -43,22 +51,48 @@ public enum Ranker {
         lexicon: Lexicon,
         config: RankerConfig = RankerConfig()
     ) -> [RankedSuggestion] {
-        let ranked = completions.map { completion -> RankedSuggestion in
-            let log10LanguageScore = lexicon.log10Probability(completion.wordID)
-            let candidateKey = PersianNormalization.matchKey(completion.surface)
-            // Phase 7's completions are always exact-prefix matches — a real
-            // (nonzero) edit cost only shows up once fuzzy search (Phase 8)
-            // contributes candidates through this same ranker.
-            let editCost = 0.0
-            let log10Channel = -config.gamma * editCost
-            let lengthDifference = min(max(candidateKey.count - typedKey.count, 0), config.completionLengthCap)
-            let log10Completion = -config.completionLengthPenalty * Double(lengthDifference)
-            let exactBonus = candidateKey == typedKey ? config.exactMatchBonus : 0
-            let score = log10LanguageScore + log10Channel + log10Completion + exactBonus
-            return RankedSuggestion(wordID: completion.wordID, surface: completion.surface, score: score)
-        }
+        let context = ScoringContext(typedKey: typedKey, lexicon: lexicon, config: config)
+        // Phase 7's completions are always exact-prefix matches — a real
+        // (nonzero) edit cost only shows up once fuzzy search (Phase 8)
+        // contributes candidates through `rank(fuzzy:...)` below.
+        let ranked = completions.map { score(wordID: $0.wordID, surface: $0.surface, editCost: 0, context: context) }
         // Tie-break: lower word id (more frequent) — §6.7.5's own rule.
         return ranked.sorted { $0.score == $1.score ? $0.wordID < $1.wordID : $0.score > $1.score }
+    }
+
+    /// Same §6.7.5 formula as `rank(completions:...)`, but for fuzzy
+    /// (typo-tolerant) candidates (task 8.4) — here `editCost` is the real
+    /// weighted Damerau–Levenshtein distance rather than always 0, so the
+    /// `channel(t|w) = 10^(-γ · editCost)` term actually penalizes distant
+    /// matches.
+    public static func rank(
+        fuzzy: [FuzzyMatch],
+        typedKey: String,
+        lexicon: Lexicon,
+        config: RankerConfig = RankerConfig()
+    ) -> [RankedSuggestion] {
+        let context = ScoringContext(typedKey: typedKey, lexicon: lexicon, config: config)
+        let ranked = fuzzy.map { score(wordID: $0.wordID, surface: $0.surface, editCost: $0.editCost, context: context) }
+        return ranked.sorted { $0.score == $1.score ? $0.wordID < $1.wordID : $0.score > $1.score }
+    }
+
+    /// Groups `rank`'s shared, per-call-invariant inputs so `score(...)`
+    /// stays under SwiftLint's parameter-count limit.
+    private struct ScoringContext {
+        let typedKey: String
+        let lexicon: Lexicon
+        let config: RankerConfig
+    }
+
+    private static func score(wordID: UInt32, surface: String, editCost: Double, context: ScoringContext) -> RankedSuggestion {
+        let log10LanguageScore = context.lexicon.log10Probability(wordID)
+        let candidateKey = PersianNormalization.matchKey(surface)
+        let log10Channel = -context.config.gamma * editCost
+        let lengthDifference = min(max(candidateKey.count - context.typedKey.count, 0), context.config.completionLengthCap)
+        let log10Completion = -context.config.completionLengthPenalty * Double(lengthDifference)
+        let exactBonus = candidateKey == context.typedKey ? context.config.exactMatchBonus : 0
+        let total = log10LanguageScore + log10Channel + log10Completion + exactBonus
+        return RankedSuggestion(wordID: wordID, surface: surface, score: total)
     }
 
     /// §6.7.5's dedupe rule: collapse candidates that are really the same

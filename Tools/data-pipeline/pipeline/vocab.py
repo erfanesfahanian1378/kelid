@@ -59,6 +59,16 @@ def select_vocabulary(
         if word in selected:
             selected[word]["flags"].append("offensive")
 
+    # Task 8.1: "<s> is a hidden vocabulary entry (never suggested)" — it
+    # fails `valid_token_pattern` (it's punctuation-shaped, not a real word)
+    # so the filter above always drops it, but bigram/trigram rows need it
+    # to have a real word id once `klm build` assigns ids from this table.
+    # Kept out of the frequency cap entirely (`count` from the real corpus
+    # count if present, else 0) since it isn't a "word" competing for
+    # vocabulary space in the first place.
+    sentence_start_count = dict(unigram_counts).get(_SENTENCE_START, 0)
+    selected[_SENTENCE_START] = {"count": sentence_start_count, "flags": ["hidden"]}
+
     return selected
 
 

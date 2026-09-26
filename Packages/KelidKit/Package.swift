@@ -141,7 +141,7 @@ let package = Package(
         .target(
             name: "EmojiData",
             dependencies: ["PersianText"],
-            resources: [.process("emoji.json")]
+            resources: [.process("emoji.json"), .process("emoji_suggest_fa.json"), .process("emoji_suggest_en.json")]
         ),
         .testTarget(
             name: "EmojiDataTests",
