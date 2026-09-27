@@ -51,9 +51,9 @@ public struct AppearanceSettings: Codable, Sendable, Equatable {
 
     public init(
         themeMode: ThemeMode = .followApp,
-        lightThemeID: String = "kelid.light",
-        darkThemeID: String = "kelid.dark",
-        fixedThemeID: String = "kelid.light",
+        lightThemeID: String = "kelid.glass.light",
+        darkThemeID: String = "kelid.glass.dark",
+        fixedThemeID: String = "kelid.glass.light",
         persianFont: PersianFontChoice = .system,
         latinFont: LatinFontChoice = .system,
         keyPressAnimation: KeyPressAnimation = .pop,
