@@ -74,10 +74,20 @@ final class ShareViewController: UIViewController {
         (extensionContext?.inputItems as? [NSExtensionItem])?.first?.attachments?.first
     }
 
+    // `@Sendable` on each `loadItem` completion below, same reasoning as
+    // PROGRESS.md decision 98: under this target's own
+    // `SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor`, a plain closure literal
+    // written inside a `@MainActor` method infers `@MainActor` isolation by
+    // default — but `NSItemProvider.loadItem(forTypeIdentifier:completion:)`
+    // can call its completion on an arbitrary background queue, which would
+    // trap the extension the same way the keyboard's own
+    // `requestSupplementaryLexicon` completion did. `continuation.resume`
+    // is safe to call from any thread by design, so this is a pure isolation
+    // fix, not a behavior change.
     private func loadText(from provider: NSItemProvider) async -> String? {
         guard provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) else { return nil }
         return await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) { item, _ in
+            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) { @Sendable item, _ in
                 continuation.resume(returning: (item as? String) ?? (item as? NSString) as String?)
             }
         }
@@ -86,7 +96,7 @@ final class ShareViewController: UIViewController {
     private func loadURL(from provider: NSItemProvider) async -> URL? {
         guard provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) else { return nil }
         return await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: UTType.url.identifier) { item, _ in
+            provider.loadItem(forTypeIdentifier: UTType.url.identifier) { @Sendable item, _ in
                 continuation.resume(returning: item as? URL)
             }
         }
@@ -95,7 +105,7 @@ final class ShareViewController: UIViewController {
     private func loadImageData(from provider: NSItemProvider) async -> Data? {
         guard provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return nil }
         return await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: UTType.image.identifier) { item, _ in
+            provider.loadItem(forTypeIdentifier: UTType.image.identifier) { @Sendable item, _ in
                 if let url = item as? URL, let data = try? Data(contentsOf: url) {
                     continuation.resume(returning: data)
                 } else if let data = item as? Data {

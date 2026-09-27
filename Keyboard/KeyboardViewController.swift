@@ -393,16 +393,23 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         services.lastSupplementaryLexiconFetchAt = Date()
-        // Real crash, found via on-device testing: `UIInputViewController`
-        // delivers this completion on its own private background queue
-        // (`com.apple.TextInput.lexicon-request`), never the main thread —
-        // touching `self`/`controller` (both main-actor-isolated) directly
-        // in this closure trapped at runtime (`swift_task_checkIsolatedSwift`)
-        // the moment a real fetch actually completed. Hopping to the main
-        // actor explicitly, instead of assuming it, is required here.
-        requestSupplementaryLexicon { [weak controller] lexicon in
-            guard let controller else { return }
+        // Real crash, found via on-device testing (twice — the first fix
+        // attempt below wasn't enough, see PROGRESS.md decision 98):
+        // `UIInputViewController` delivers this completion on its own
+        // private background queue (`com.apple.TextInput.lexicon-request`),
+        // never the main thread. Under this target's
+        // `SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor`, a plain closure
+        // literal written inside a `@MainActor` method is itself inferred
+        // `@MainActor`-isolated — so the runtime isolation check trips the
+        // instant the closure is *entered* from the wrong queue, before a
+        // single statement of its body (even an inner `Task { @MainActor
+        // in }` hop) ever runs. The closure itself must be forced
+        // `@Sendable` (opting it out of that inference) so it can safely be
+        // called from any thread; only *then* does hopping to the main
+        // actor for the real work inside it make any difference.
+        requestSupplementaryLexicon { @Sendable [weak controller] lexicon in
             Task { @MainActor in
+                guard let controller else { return }
                 let (replacements, names) = Self.parseSupplementaryLexicon(lexicon, learning: learning)
                 controller.applySupplementaryLexicon(textReplacements: replacements, contactNames: names)
             }
