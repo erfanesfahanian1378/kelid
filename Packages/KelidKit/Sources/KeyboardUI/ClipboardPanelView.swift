@@ -1,5 +1,6 @@
 #if canImport(UIKit)
     import ClipboardKit
+    import KelidStorage
     import SwiftUI
 
     /// Task 5.5/5.6/5.12's clipboard panel. `KeyboardController` populates
@@ -50,37 +51,80 @@
                 Picker("Tab", selection: $model.tab) {
                     Text("Recent").tag(ClipboardPanelModel.Tab.recent)
                     Text("Pinned").tag(ClipboardPanelModel.Tab.pinned)
+                    Text("Snippets").tag(ClipboardPanelModel.Tab.snippets)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
                 .padding(.top, 4)
 
-                let clips = model.tab == .recent ? model.recentClips : model.pinnedClips
-                if clips.isEmpty {
-                    emptyState
+                if model.tab == .snippets {
+                    snippetsList
                 } else {
-                    List(clips) { clip in
-                        ClipRowView(clip: clip, isRevealed: model.revealedIDs.contains(clip.id ?? -1)) {
-                            model.onTapClip?(clip)
-                        } onReveal: {
-                            if let id = clip.id {
-                                model.revealedIDs.insert(id)
-                            }
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { model.onDelete?(clip) } label: { Label("Delete", systemImage: "trash") }
-                        }
-                        .contextMenu {
-                            Button(clip.isPinned ? "Unpin" : "Pin") { model.onTogglePin?(clip) }
-                            Button("Delete", role: .destructive) { model.onDelete?(clip) }
+                    clipsList
+                }
+            }
+        }
+
+        @ViewBuilder
+        private var clipsList: some View {
+            let clips = model.tab == .recent ? model.recentClips : model.pinnedClips
+            if clips.isEmpty {
+                emptyState
+            } else {
+                List(clips) { clip in
+                    ClipRowView(clip: clip, isRevealed: model.revealedIDs.contains(clip.id ?? -1)) {
+                        model.onTapClip?(clip)
+                    } onReveal: {
+                        if let id = clip.id {
+                            model.revealedIDs.insert(id)
                         }
                     }
-                    .listStyle(.plain)
-                    if model.tab == .recent {
-                        Button("Clear (keep pinned)", role: .destructive) { model.onClearAll?() }
-                            .padding(.vertical, 6)
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { model.onDelete?(clip) } label: { Label("Delete", systemImage: "trash") }
+                    }
+                    .contextMenu {
+                        Button(clip.isPinned ? "Unpin" : "Pin") { model.onTogglePin?(clip) }
+                        Button("Delete", role: .destructive) { model.onDelete?(clip) }
                     }
                 }
+                .listStyle(.plain)
+                if model.tab == .recent {
+                    Button("Clear (keep pinned)", role: .destructive) { model.onClearAll?() }
+                        .padding(.vertical, 6)
+                }
+            }
+        }
+
+        // MARK: - Snippets tab (task 10.5)
+
+        /// Task 10.5: browse-and-tap-to-insert only, grouped by folder
+        /// exactly like the app's own Snippets sub-tab — no CRUD here.
+        @ViewBuilder
+        private var snippetsList: some View {
+            if model.snippetGroups.allSatisfy(\.snippets.isEmpty) {
+                VStack(spacing: 8) {
+                    Spacer()
+                    Text("No snippets yet — add some from the Kelid app")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                List {
+                    ForEach(model.snippetGroups, id: \.folder?.id) { group in
+                        if !group.snippets.isEmpty {
+                            Section(group.folder?.name ?? "Unfiled") {
+                                ForEach(group.snippets) { snippet in
+                                    Button(snippet.title ?? snippet.text) { model.onTapSnippet?(snippet) }
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
             }
         }
 

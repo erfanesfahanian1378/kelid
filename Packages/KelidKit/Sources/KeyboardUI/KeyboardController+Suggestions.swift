@@ -319,7 +319,10 @@
         }
 
         /// §6.7.9: "Evaluated on a separator (space, punctuation, return)."
-        private static func autocorrectSeparator(for action: InputAction) -> String? {
+        /// `internal` (not `private`): `KeyboardController+Snippets.swift`
+        /// (a separate file) calls this too — `private` is file-scoped in
+        /// Swift, even across extensions of the same type.
+        static func autocorrectSeparator(for action: InputAction) -> String? {
             switch action {
             case .space:
                 return " "

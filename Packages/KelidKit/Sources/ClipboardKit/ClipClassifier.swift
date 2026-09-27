@@ -128,11 +128,19 @@ public enum ClipClassifier {
         return match.url
     }
 
-    static func sha256Hex(_ text: String) -> String {
+    /// `public`: task 10.9's backup restore (`App/BackupService.swift`)
+    /// needs to compute the exact same `contentHash` `classify(_:...)`
+    /// would, so an imported clip correctly dedupes against (or matches) an
+    /// existing one via `ClipRepository.upsert(_:)`'s own contentHash-based
+    /// merge, rather than needing a separate uuid-based upsert path.
+    public static func sha256Hex(_ text: String) -> String {
         sha256Hex(Data(text.utf8))
     }
 
-    static func sha256Hex(_ data: Data) -> String {
+    /// `public`: task 10.7's Share Extension needs to hash raw image data
+    /// exactly as `ClipboardService.captureImage(data:)` already does, to
+    /// dedupe a shared image against one already in the clip store.
+    public static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }

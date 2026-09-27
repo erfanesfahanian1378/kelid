@@ -15,34 +15,31 @@
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
-	<string>APPL</string>
+	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>KelidAppGroupID</key>
 	<string>$(KELID_APP_GROUP)</string>
-	<key>UILaunchScreen</key>
-	<dict/>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
 		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.json</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Kelid Backup</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.example.kelid.backup</string>
-			<key>UTTypeTagSpecification</key>
+			<key>NSExtensionActivationRule</key>
 			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>kelidbackup</string>
-				</array>
+				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
+				<integer>1</integer>
+				<key>NSExtensionActivationSupportsText</key>
+				<true/>
+				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
+				<integer>1</integer>
 			</dict>
 		</dict>
-	</array>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.share-services</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+	</dict>
 </dict>
 </plist>

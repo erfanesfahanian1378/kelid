@@ -102,6 +102,7 @@ let package = Package(
             name: "KelidStorage",
             dependencies: [
                 "KelidCore",
+                "PersianText",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]
         ),

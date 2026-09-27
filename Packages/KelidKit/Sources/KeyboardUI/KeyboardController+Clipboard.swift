@@ -204,6 +204,13 @@
                 // out of the way so the user can switch to Settings.
                 self?.onDismissKeyboard?()
             }
+            model.onTapSnippet = { [weak self] snippet in
+                self?.perform(.insertClip(snippet.text))
+                Task { [weak self] in
+                    guard let self, let id = snippet.id else { return }
+                    try? await snippetRepository.markUsed(id: id)
+                }
+            }
             model.onDone = { [weak self] in
                 self?.dismissClipboardPanel()
             }
@@ -213,6 +220,7 @@
             model.revealedIDs.removeAll()
             model.recentClips = await (try? clipboardService.repository.page(filter: .recent, offset: 0)) ?? []
             model.pinnedClips = await (try? clipboardService.repository.page(filter: .pinned, offset: 0)) ?? []
+            model.snippetGroups = await (try? snippetRepository.listAllGroupedByFolder()) ?? []
         }
 
         // MARK: - Edit panel (task 5.9/5.10)

@@ -230,6 +230,10 @@ public final class InputProcessor {
             effects += applyAutocorrect(corrected: corrected, separator: separator, in: doc)
             clearsAutoSpace = false // applyAutocorrect sets autoSpacePending itself, same reasoning as .space
 
+        case let .expandSnippet(text, separator):
+            effects += expandSnippet(text: text, separator: separator, in: doc)
+            clearsAutoSpace = false // expandSnippet sets autoSpacePending itself, same reasoning as .space
+
         case let .insertClip(text):
             effects += insertClip(text, in: doc)
             effects.append(.requestSuggestions)

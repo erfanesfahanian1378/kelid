@@ -151,6 +151,9 @@ public actor SuggestionService {
     /// 1-hour cache cycle, straight from the live system list each time).
     private var textReplacements: [LanguageID: [String: String]] = [:]
     private var latestGeneration = Int.min
+    /// Task 9.2/10.6's "reload on `.userdict.changed`" — set up once, the
+    /// first time `loadUserModels` runs.
+    private var userDictObservationToken: DarwinObservationToken?
 
     public init() {}
 
@@ -174,6 +177,25 @@ public actor SuggestionService {
             try await model.load()
             try? await model.rebuildPersonalLexicon(baseLexicon: lexicons[language])
             userModels[language] = model
+        }
+        observeUserDictChangesIfNeeded()
+    }
+
+    /// Task 9.2/10.6: reloads every loaded `UserModel` from its store —
+    /// wired once here rather than in `KeyboardUI`, so `PredictionEngine`
+    /// stays the one place that owns `UserModel`'s whole lifecycle.
+    private func observeUserDictChangesIfNeeded() {
+        guard userDictObservationToken == nil else { return }
+        userDictObservationToken = DarwinNotifier.shared.observe(.userDictChanged) { [weak self] in
+            guard let self else { return }
+            Task { await self.reloadUserModels() }
+        }
+    }
+
+    private func reloadUserModels() async {
+        for (language, model) in userModels {
+            try? await model.reload()
+            try? await model.rebuildPersonalLexicon(baseLexicon: lexicons[language])
         }
     }
 

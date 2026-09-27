@@ -129,6 +129,48 @@ extension InputProcessor {
         return effects
     }
 
+    /// Task 10.5: "a snippet's shortcut followed by space is replaced by
+    /// the snippet text" — mechanically identical to `applyAutocorrect`
+    /// (delete the typed word, insert the replacement + separator,
+    /// undo-able), but deliberately doesn't push `lastAutocorrection` (no
+    /// "backspace reverts it" behavior for snippets, unlike autocorrect) or
+    /// call `commitEffect` (expanding a snippet isn't "typing a word" in
+    /// §6.7.8's sense — the *shortcut* was typed, not the expansion).
+    func expandSnippet(text: String, separator: String, in doc: TextDocument) -> [InputEffect] {
+        let before = doc.contextBefore ?? shadowBuffer.contents
+        let original = context.prefix
+        for _ in original {
+            doc.deleteBackward()
+        }
+        shadowBuffer.recordDeletion(count: original.count)
+
+        let expectedRemainder = String(before.dropLast(original.count))
+        var actualRemainder = doc.contextBefore ?? ""
+        var extraAttempts = 0
+        while actualRemainder != expectedRemainder, expectedRemainder.hasPrefix(actualRemainder), extraAttempts < 4 {
+            let overDeleted = String(expectedRemainder.dropFirst(actualRemainder.count))
+            doc.insertText(overDeleted)
+            shadowBuffer.recordInsertion(overDeleted)
+            actualRemainder = doc.contextBefore ?? ""
+            extraAttempts += 1
+        }
+
+        var actuallyDeleted = original
+        if before.hasPrefix(actualRemainder), before.count > actualRemainder.count {
+            actuallyDeleted = String(before.dropFirst(actualRemainder.count))
+        }
+
+        let replacement = text + separator
+        doc.insertText(replacement)
+        shadowBuffer.recordInsertion(replacement)
+        autoSpacePending = separator == " "
+        pushUndo(.replaced(deleted: actuallyDeleted, inserted: replacement))
+
+        var effects = resolveShiftAfterInsertion()
+        effects.append(.requestSuggestions)
+        return effects
+    }
+
     // MARK: - Edit panel: Copy/Cut/Paste (§6.4.9)
 
     /// `InputProcessor` has no pasteboard access (rule 5.1.5) — this only

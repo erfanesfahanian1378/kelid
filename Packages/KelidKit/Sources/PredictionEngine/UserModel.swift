@@ -140,7 +140,14 @@ public struct UserModelSettings: Sendable, Equatable {
 /// fuzzy search over the same data, a strict superset of what a bare
 /// sorted-array binary search would provide.
 public actor UserModel {
-    private struct WordEntry {
+    /// Several members below are `internal` (not `private`) rather than the
+    /// narrowest possible access level, purely so `UserModel+Probabilities.swift`
+    /// (an extension in a separate file, split out to clear SwiftLint's
+    /// `type_body_length` error threshold — same recurring pattern as
+    /// decisions 27/32/39/62) can reach them; Swift's `private` is
+    /// file-scoped even across extensions of the same type. Still never
+    /// `public` — nothing here is visible outside the `PredictionEngine` module.
+    struct WordEntry {
         var surface: String
         var matchKey: String
         var count: Double
@@ -150,27 +157,27 @@ public actor UserModel {
 
     /// Packed `(id1 << 32) | id2` — same packing scheme §6.7.6 itself
     /// specifies for bigrams.
-    private typealias BigramKey = UInt64
-    private struct TrigramKey: Hashable {
+    typealias BigramKey = UInt64
+    struct TrigramKey: Hashable {
         let id1: UInt32
         let id2: UInt32
         let id3: UInt32
     }
 
-    private struct NGramStat {
+    struct NGramStat {
         var count: Double
         var lastUsedAt: Date
     }
 
     public let language: LanguageID
-    private let settings: UserModelSettings
+    let settings: UserModelSettings
     private let store: UserModelStore
-    private let clock: Clock
+    let clock: Clock
 
-    private var surfaceToID: [String: UInt32] = [:]
-    private var words: [UInt32: WordEntry] = [:]
-    private var bigrams: [BigramKey: NGramStat] = [:]
-    private var trigrams: [TrigramKey: NGramStat] = [:]
+    var surfaceToID: [String: UInt32] = [:]
+    var words: [UInt32: WordEntry] = [:]
+    var bigrams: [BigramKey: NGramStat] = [:]
+    var trigrams: [TrigramKey: NGramStat] = [:]
     private var blockedWords: Set<String> = []
     private var blockedCorrections: Set<UserModelBlockedCorrection> = []
 
@@ -202,6 +209,28 @@ public actor UserModel {
     }
 
     // MARK: - Load (task 9.2: "load asynchronously on first use")
+
+    /// Task 9.2/10.6: "reload on `.userdict.changed`" — the app's Dictionary
+    /// manager (or a backup restore, or the no-Full-Access merge) can edit
+    /// this same database out from under an already-loaded `UserModel`;
+    /// this discards the in-memory state and loads fresh, after flushing
+    /// any pending write-behind entries first so a commit that happened
+    /// moments ago on *this* side isn't lost in the process.
+    public func reload() async throws {
+        try? await flush()
+        words.removeAll()
+        surfaceToID.removeAll()
+        bigrams.removeAll()
+        trigrams.removeAll()
+        blockedWords.removeAll()
+        blockedCorrections.removeAll()
+        dirtyWordSurfaces.removeAll()
+        dirtyBigramKeys.removeAll()
+        dirtyTrigramKeys.removeAll()
+        nextID = 0
+        isLoaded = false
+        try await load()
+    }
 
     public func load() async throws {
         guard !isLoaded else { return }
@@ -252,7 +281,7 @@ public actor UserModel {
     /// person deliberately added rather than something inferred from usage
     /// frequency that should fade if unused. Every other source still uses
     /// the plain time-decay formula above.
-    private nonisolated func effectiveCount(_ entry: WordEntry, now: Date) -> Double {
+    nonisolated func effectiveCount(_ entry: WordEntry, now: Date) -> Double {
         switch entry.source {
         case .manual, .contacts: entry.count
         case .typed, .accepted, .verbatim, .revert, .importText: effectiveCount(entry.count, lastUsedAt: entry.lastUsedAt, now: now)
@@ -451,68 +480,9 @@ public actor UserModel {
         key.id1 == id || key.id2 == id || key.id3 == id
     }
 
-    // MARK: - Probabilities (§6.7.6)
-
-    /// `P_uni(w) = eff(w) / (Σ eff + 50)`.
-    public func unigramProbability(_ surface: String) -> Double? {
-        guard let id = surfaceToID[surface], let entry = words[id] else { return nil }
-        let now = clock.now()
-        let eff = effectiveCount(entry, now: now)
-        let total = words.values.reduce(0.0) { $0 + effectiveCount($1, now: now) }
-        return eff / (total + 50)
-    }
-
-    /// `P_bi(w|w1) = eff(w1,w) / (eff(w1) + 5)`.
-    public func bigramProbability(context w1: String, word: String) -> Double? {
-        guard let id1 = surfaceToID[w1], let id2 = surfaceToID[word], let contextEntry = words[id1],
-              let stat = bigrams[Self.packBigram(id1, id2)]
-        else { return nil }
-        let now = clock.now()
-        let eff = effectiveCount(stat.count, lastUsedAt: stat.lastUsedAt, now: now)
-        let contextEff = effectiveCount(contextEntry, now: now)
-        return eff / (contextEff + 5)
-    }
-
-    /// `P_tri(w|w1,w2) = eff(w1,w2,w) / (eff(w1,w2) + 3)`.
-    public func trigramProbability(w1: String, w2: String, word: String) -> Double? {
-        guard let id1 = surfaceToID[w1], let id2 = surfaceToID[w2], let id3 = surfaceToID[word],
-              let contextStat = bigrams[Self.packBigram(id1, id2)],
-              let stat = trigrams[TrigramKey(id1: id1, id2: id2, id3: id3)]
-        else { return nil }
-        let now = clock.now()
-        let eff = effectiveCount(stat.count, lastUsedAt: stat.lastUsedAt, now: now)
-        let contextEff = effectiveCount(contextStat.count, lastUsedAt: contextStat.lastUsedAt, now: now)
-        return eff / (contextEff + 3)
-    }
-
-    /// `S_user` — the same Stupid-Backoff shape §6.7.3 uses for the
-    /// language model (trigram if present, else `0.4×` bigram, else
-    /// `0.16×` unigram), applied to `UserModel`'s own real-valued
-    /// probabilities. `0` (not `nil`) for a word the model has never seen,
-    /// so callers can blend it directly without an extra optional check.
-    public func stupidBackoffScore(word: String, w1: String?, w2: String?) -> Double {
-        if let w1, let w2, let triProb = trigramProbability(w1: w1, w2: w2, word: word) {
-            return triProb
-        }
-        if let w2, let biProb = bigramProbability(context: w2, word: word) {
-            return 0.4 * biProb
-        }
-        if let uniProb = unigramProbability(word) {
-            return 0.16 * uniProb
-        }
-        return 0
-    }
-
-    /// §6.7.8's "new words ... only suggested after `eff ≥
-    /// newWordThreshold`" — `isKnownToLanguageModel` lets the caller (which
-    /// has the base `Lexicon`) exempt words the base model already knows,
-    /// since that rule only exists to keep one-off typos out of
-    /// suggestions for genuinely *new* coinages.
-    public func isSuggestable(_ surface: String, isKnownToLanguageModel: Bool) -> Bool {
-        guard let id = surfaceToID[surface], let entry = words[id] else { return false }
-        guard !isKnownToLanguageModel else { return true }
-        return effectiveCount(entry, now: clock.now()) >= settings.newWordThreshold
-    }
+    // Probability formulas (unigram/bigram/trigram, Stupid-Backoff,
+    // isSuggestable) moved to UserModel+Probabilities.swift — see that
+    // file's header comment.
 
     // MARK: - Personal-only candidate generation (§6.7.7)
 
@@ -597,7 +567,7 @@ public actor UserModel {
         return id
     }
 
-    private static func packBigram(_ id1: UInt32, _ id2: UInt32) -> BigramKey {
+    static func packBigram(_ id1: UInt32, _ id2: UInt32) -> BigramKey {
         (BigramKey(id1) << 32) | BigramKey(id2)
     }
 }

@@ -44,6 +44,12 @@ public enum InputAction: Equatable, Sendable {
     /// `InputProcessor` just applies it and remembers it for a possible
     /// revert (§6.4.6).
     case applyAutocorrect(corrected: String, separator: String)
+    /// Task 10.5: a shortcut followed by a separator expands to a snippet's
+    /// full text — `KeyboardController` resolves the lookup (`InputEngine`
+    /// can't depend on `KelidStorage`, §4.2) and substitutes this for the
+    /// plain separator action, same interception pattern as
+    /// `.applyAutocorrect`.
+    case expandSnippet(text: String, separator: String)
     /// Already-resolved clip text (task 5.8) — like `.character`, this
     /// arrives pre-fetched: `InputProcessor` has no clipboard/database
     /// access of its own (rule 5.1.5-adjacent module boundary). Also used

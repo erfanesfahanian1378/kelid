@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import KelidCore
+import PersianText
 
 /// A `(typed, corrected)` pair a user has explicitly rejected — §6.7.8:
 /// "Reverting an autocorrect adds the pair `(typed → corrected)` to
@@ -71,9 +72,24 @@ public struct UserTrigramDelta: Sendable, Equatable {
 /// Access fallback).
 public actor UserModelRepository {
     private let database: DatabaseManager
+    private let darwinNotifier: DarwinNotifier
+    private let appGroupIdentifier: String?
 
-    public init(database: DatabaseManager) {
+    public init(database: DatabaseManager, darwinNotifier: DarwinNotifier = .shared, appGroupIdentifier: String? = AppGroup.identifier) {
         self.database = database
+        self.darwinNotifier = darwinNotifier
+        self.appGroupIdentifier = appGroupIdentifier
+    }
+
+    /// Task 10.6: the app's Dictionary manager edits this same database a
+    /// running keyboard's `UserModel` already loaded into memory — without
+    /// this, a block/forget/add/reset made from the app would silently not
+    /// reach a keyboard already on screen until its process restarted.
+    /// `PredictionEngine.SuggestionService` observes this (task 9.2's own
+    /// "reload on `.userdict.changed`," never actually wired until now) and
+    /// reloads the affected `UserModel`.
+    private func notifyChanged() {
+        darwinNotifier.post(.userDictChanged, appGroupIdentifier: appGroupIdentifier)
     }
 
     // MARK: - Write-behind flush (§6.7.6: "one transaction of UPSERTs")
@@ -202,6 +218,7 @@ public actor UserModelRepository {
                 arguments: [blocked, language.rawValue, surface]
             )
         }
+        notifyChanged()
     }
 
     /// "Forget" — delete the word row and every n-gram row that mentions it
@@ -217,6 +234,28 @@ public actor UserModelRepository {
                 arguments: [language.rawValue, surface, surface, surface]
             )
         }
+        notifyChanged()
+    }
+
+    /// Task 10.6's "add a word manually" — seeded at a baseline comfortably
+    /// above any reasonable `newWordThreshold`, same reasoning as
+    /// `UserModel.addContactNames`: a word you deliberately typed into the
+    /// dictionary manager should be immediately suggestable, not have to
+    /// "earn" visibility the way an organically-typed new word does.
+    /// `.manual` source, so `prune`/`enforceWordCap` never evict it.
+    public func addManualWord(surface: String, language: LanguageID) async throws {
+        let now = Date()
+        try await database.write { db in
+            guard try UserWord.filter(Column("lang") == language.rawValue && Column("surface") == surface).fetchCount(db) == 0 else {
+                return // already exists — leave real usage counts alone
+            }
+            var word = UserWord(
+                language: language, surface: surface, matchKey: PersianNormalization.matchKey(surface), count: 10, lastUsedAt: now,
+                firstSeenAt: now, source: .manual
+            )
+            try word.insert(db)
+        }
+        notifyChanged()
     }
 
     public func blockCorrection(typed: String, corrected: String, language: LanguageID) async throws {
@@ -238,6 +277,7 @@ public actor UserModelRepository {
             try db.execute(sql: "DELETE FROM user_trigram WHERE lang = ?", arguments: [language.rawValue])
             try db.execute(sql: "DELETE FROM user_correction_block WHERE lang = ?", arguments: [language.rawValue])
         }
+        notifyChanged()
     }
 
     // MARK: - Prune (§6.7.6: "delete the lowest eff rows, never user-added words")
@@ -278,6 +318,35 @@ public actor UserModelRepository {
     private static func effectiveCount(_ word: UserWord, halfLifeDays: Double, now: Date) -> Double {
         let daysSinceUse = now.timeIntervalSince(word.lastUsedAt) / 86400
         return word.count * pow(0.5, daysSinceUse / halfLifeDays)
+    }
+
+    // MARK: - Backup import (§6.11.7, task 10.9)
+
+    /// "Import merges... by `surface` for user words (sum counts)" — the
+    /// same sum/max-lastUsed shape `merge(from:language:)` already uses for
+    /// the no-Full-Access local→shared case, just from an in-memory array
+    /// (a decoded `.kelidbackup` file) instead of another `DatabaseManager`.
+    public func importWords(_ words: [UserWordDelta], language: LanguageID) async throws {
+        guard !words.isEmpty else { return }
+        try await database.write { db in
+            for imported in words {
+                if var existing = try UserWord
+                    .filter(Column("lang") == language.rawValue && Column("surface") == imported.surface)
+                    .fetchOne(db)
+                {
+                    existing.count += imported.count
+                    existing.lastUsedAt = max(existing.lastUsedAt, imported.lastUsedAt)
+                    try existing.update(db)
+                } else {
+                    var word = UserWord(
+                        language: language, surface: imported.surface, matchKey: imported.matchKey, count: imported.count,
+                        lastUsedAt: imported.lastUsedAt, firstSeenAt: imported.lastUsedAt, source: imported.source
+                    )
+                    try word.insert(db)
+                }
+            }
+        }
+        notifyChanged()
     }
 
     // MARK: - Local → shared merge (§6.11.2's no-Full-Access fallback)
@@ -348,5 +417,6 @@ public actor UserModelRepository {
                     .insert(db, onConflict: .ignore)
             }
         }
+        notifyChanged()
     }
 }

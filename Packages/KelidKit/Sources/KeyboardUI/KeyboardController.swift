@@ -157,6 +157,17 @@
         /// `ClipRepository` uses — one `UserModelRepository` per language is
         /// built from it in `loadPredictionModels()`.
         let userModelDatabase: DatabaseManager
+        /// Task 10.5: the clipboard panel's Snippets tab (browse/insert
+        /// only) reads from this — the same `userModelDatabase` every other
+        /// personal-data repository here shares.
+        let snippetRepository: SnippetRepository
+        /// Task 10.5's text-expansion lookup — an in-memory mirror of every
+        /// shortcut → snippet text pair, refreshed on load and on
+        /// `.snippetsChanged` (implementation in `+Snippets.swift`) so
+        /// `expandedAction(for:)` never needs an async round trip on every
+        /// single keystroke.
+        var shortcutToSnippetText: [String: String] = [:]
+        var snippetsObservationToken: DarwinObservationToken?
         /// Task 9.2's write-behind flush (5s) — started in `init`, stopped
         /// never (this controller's whole lifetime is one typing session);
         /// `internal`, not `private`, so `KeyboardController+Suggestions.swift`
@@ -183,6 +194,7 @@
             self.clipboardService = clipboardService
             self.suggestionService = suggestionService
             self.userModelDatabase = userModelDatabase
+            snippetRepository = SnippetRepository(database: userModelDatabase)
             self.documentProvider = documentProvider
             inputProcessor = InputProcessor(
                 settings: InputSettings(settings.general, clipSmartSpacing: settings.clipboard.smartSpacing),
@@ -204,6 +216,8 @@
             wireSuggestionBar()
             rebuild()
             loadPredictionModels()
+            loadSnippetShortcuts()
+            observeSnippetChanges()
         }
 
         // MARK: - Settings / metrics / geometry updates
@@ -211,6 +225,17 @@
         public func updateSettings(_ settings: KeyboardSettings) {
             self.settings = settings
             inputProcessor.updateSettings(InputSettings(settings.general, clipSmartSpacing: settings.clipboard.smartSpacing))
+            // §6.10's Home-tab "incognito" quick toggle (task 10.1) writes
+            // straight to `settings.learning.incognito` — this is what
+            // actually reflects that into a keyboard already on screen.
+            // Idempotent either way: the keyboard's own toolbar toggle
+            // (`toggleIncognito()`) already set both the setting and
+            // `state.incognito` together before this round-trips back here.
+            if state.incognito != settings.learning.incognito {
+                state.incognito = settings.learning.incognito
+                rootView.toolbarStrip.setIncognito(state.incognito)
+                restyle()
+            }
             rebuild()
         }
 
@@ -344,7 +369,8 @@
         /// buttons.
         func perform(_ action: InputAction) {
             guard state.mode != .resize else { return }
-            apply(inputProcessor.handle(autocorrectedAction(for: action), in: documentProvider()))
+            let resolvedAction = autocorrectedAction(for: expandedAction(for: action))
+            apply(inputProcessor.handle(resolvedAction, in: documentProvider()))
         }
 
         func apply(_ effects: [InputEffect]) {

@@ -19,28 +19,44 @@ targets:
   Kelid:
     type: application
     platform: iOS
-    sources: [App]
+    sources:
+      - path: App
+      - path: docs/PRIVACY.md
+        buildPhase: resources
+      - path: docs/ATTRIBUTIONS.md
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(KELID_BUNDLE_PREFIX).kelid
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
     info:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Kelid
         KelidAppGroupID: $(KELID_APP_GROUP)
         UILaunchScreen: {}
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.example.kelid.backup
+            UTTypeDescription: Kelid Backup
+            UTTypeConformsTo: [public.json]
+            UTTypeTagSpecification:
+              public.filename-extension: [kelidbackup]
     entitlements:
       path: App/Kelid.entitlements
       properties:
         com.apple.security.application-groups: [$(KELID_APP_GROUP)]
     dependencies:
       - target: KelidKeyboard
+      - target: KelidShare
       - { package: KelidKit, product: KeyboardUI }
       - { package: KelidKit, product: KelidStorage }
       - { package: KelidKit, product: KelidCore }
       - { package: KelidKit, product: KelidSettings }
       - { package: KelidKit, product: KeyboardLayout }
+      - { package: KelidKit, product: ClipboardKit }
+      - { package: KelidKit, product: PersianText }
   KelidKeyboard:
     type: app-extension
     platform: iOS
@@ -75,9 +91,41 @@ targets:
       - { package: KelidKit, product: InputEngine }
       - { package: KelidKit, product: KeyboardLayout }
       - { package: KelidKit, product: PredictionEngine }
+  KelidShare:
+    type: app-extension
+    platform: iOS
+    sources: [Share]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(KELID_BUNDLE_PREFIX).kelid.share
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        APPLICATION_EXTENSION_API_ONLY: YES
+    info:
+      path: Share/Info.plist
+      properties:
+        CFBundleDisplayName: Kelid
+        KelidAppGroupID: $(KELID_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 1
+    entitlements:
+      path: Share/KelidShare.entitlements
+      properties:
+        com.apple.security.application-groups: [$(KELID_APP_GROUP)]
+    dependencies:
+      - { package: KelidKit, product: KelidCore }
+      - { package: KelidKit, product: KelidSettings }
+      - { package: KelidKit, product: KelidStorage }
+      - { package: KelidKit, product: ClipboardKit }
+      - { package: KelidKit, product: PersianText }
 schemes:
   Kelid:
-    build: { targets: { Kelid: all, KelidKeyboard: all } }
+    build: { targets: { Kelid: all, KelidKeyboard: all, KelidShare: all } }
   KelidKeyboard:
     build: { targets: { KelidKeyboard: all, Kelid: all } }
     run: { askForAppToLaunch: true }
