@@ -17,6 +17,13 @@
     /// table (§6.1.4).
     final class ToolbarStripView: UIView {
         private let label = UILabel()
+        /// A direct, one-tap "grab whatever's on the clipboard right now"
+        /// action, distinct from `clipboardButton` (which opens the full
+        /// history panel). Added after real device testing showed the
+        /// automatic/on-tap-chip capture path is easy to miss — this button
+        /// itself being tapped is a real user gesture, so it reads the
+        /// pasteboard immediately rather than waiting on the poll/chip.
+        private let copyNowButton = UIButton(type: .system)
         private let clipboardButton = UIButton(type: .system)
         private let editButton = UIButton(type: .system)
         private let resizeButton = UIButton(type: .system)
@@ -64,6 +71,7 @@
         var onTapResize: (() -> Void)?
         var onTapSettings: (() -> Void)?
         var onTapClipboard: (() -> Void)?
+        var onTapCopyNow: (() -> Void)?
         var onTapEdit: (() -> Void)?
         var onTapIncognito: (() -> Void)?
         /// The label itself (the clip chip / toast area) — tapping it is
@@ -80,6 +88,11 @@
             label.isUserInteractionEnabled = true
             label.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleLabelTap)))
             addSubview(label)
+
+            copyNowButton.setImage(UIImage(systemName: "square.and.arrow.down.on.square"), for: .normal)
+            copyNowButton.accessibilityLabel = "save clipboard now"
+            copyNowButton.addAction(UIAction { [weak self] _ in self?.onTapCopyNow?() }, for: .touchUpInside)
+            addSubview(copyNowButton)
 
             clipboardButton.setImage(UIImage(systemName: "doc.on.clipboard"), for: .normal)
             clipboardButton.accessibilityLabel = "clipboard"
@@ -128,7 +141,7 @@
         override func layoutSubviews() {
             super.layoutSubviews()
             let buttonWidth: CGFloat = 32
-            let buttons = [clipboardButton, editButton, resizeButton, settingsButton, incognitoButton]
+            let buttons = [copyNowButton, clipboardButton, editButton, resizeButton, settingsButton, incognitoButton]
             for (index, button) in buttons.enumerated() {
                 button.frame = CGRect(x: bounds.maxX - buttonWidth * CGFloat(index + 1), y: 0, width: buttonWidth, height: bounds.height)
             }
@@ -157,7 +170,7 @@
         func apply(style: KeyStyle) {
             backgroundColor = isIncognitoActive ? Self.incognitoTint : style.toolbarBackground
             label.textColor = style.toolbarSuggestionText
-            for button in [clipboardButton, editButton, resizeButton, settingsButton] {
+            for button in [copyNowButton, clipboardButton, editButton, resizeButton, settingsButton] {
                 button.tintColor = style.toolbarIcon
             }
             incognitoButton.tintColor = isIncognitoActive ? .white : style.toolbarIcon

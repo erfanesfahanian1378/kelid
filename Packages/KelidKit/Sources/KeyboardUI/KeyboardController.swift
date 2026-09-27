@@ -223,6 +223,7 @@
             rootView.toolbarStrip.onTapResize = { [weak self] in self?.startResizeMode() }
             rootView.toolbarStrip.onTapSettings = { [weak self] in self?.toggleQuickSettings() }
             rootView.toolbarStrip.onTapClipboard = { [weak self] in self?.toggleClipboardPanel() }
+            rootView.toolbarStrip.onTapCopyNow = { [weak self] in self?.quickCaptureClipboard() }
             rootView.toolbarStrip.onTapEdit = { [weak self] in self?.toggleEditPanel() }
             rootView.toolbarStrip.onTapLabel = { [weak self] in self?.tapClipChip() }
             rootView.toolbarStrip.onTapIncognito = { [weak self] in self?.toggleIncognito() }

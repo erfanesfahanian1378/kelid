@@ -160,11 +160,11 @@
             case .letters:
                 var base = DigitSubstitution.apply(
                     to: layoutFile[.letters] ?? PageDefinition(rows: []),
-                    mode: settings.general.persianDigits
+                    mode: letterDigitsMode()
                 )
                 base = NumberRowBuilder.prepending(
                     base,
-                    mode: settings.general.persianDigits,
+                    mode: letterDigitsMode(),
                     showNumberRow: settings.general.showNumberRow
                 )
                 var rows = base.rows
@@ -172,7 +172,7 @@
                 return PageDefinition(rows: rows)
 
             case .symbols1, .symbols2:
-                let base = DigitSubstitution.apply(to: layoutFile[page] ?? PageDefinition(rows: []), mode: settings.general.persianDigits)
+                let base = DigitSubstitution.apply(to: layoutFile[page] ?? PageDefinition(rows: []), mode: letterDigitsMode())
                 var rows = base.rows
                 rows.append(bottomRow(for: page))
                 return PageDefinition(rows: rows)
@@ -185,6 +185,20 @@
         /// `PersianDigitsMode`.
         private func numpadDigitsMode() -> PersianDigitsMode {
             settings.general.numpadDigits == .persian ? .persian : .latin
+        }
+
+        /// Real bug, found via on-device testing: `settings.general.persianDigits`
+        /// used to be passed straight through regardless of which language's
+        /// layout was actually being composed, so the *English* QWERTY page's
+        /// own number row showed Persian digits whenever the (global,
+        /// language-independent) `persianDigits` setting was `.persian` — its
+        /// default. Digit *script* should follow the layout's own language,
+        /// the same way `.symbols1`/`.symbols2` already inherit whichever
+        /// language page opened them; `persianDigits` only ever meant "which
+        /// script for *Persian* typing," never "force Persian digits into
+        /// English text too."
+        private func letterDigitsMode() -> PersianDigitsMode {
+            state.language == .fa ? settings.general.persianDigits : .latin
         }
 
         private func bottomRow(for page: KeyboardPage) -> [KeyDefinition] {

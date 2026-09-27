@@ -108,6 +108,42 @@
             state.clipChip = nil
         }
 
+        /// The toolbar's dedicated "save clipboard now" button (added after
+        /// real device testing showed the automatic/on-tap-chip capture
+        /// path is easy to miss) — a direct tap on this button is itself
+        /// the user gesture iOS's pasteboard-read privacy protection
+        /// requires, so it reads content immediately rather than waiting on
+        /// the 1s poll or a chip the user might not notice in time.
+        public func quickCaptureClipboard() {
+            Task { [weak self] in
+                guard let self else { return }
+                switch await performQuickCapture() {
+                case let .captured(clip):
+                    showClipChip(for: clip)
+                case .blocked:
+                    state.toast = hasFullAccess ? "Clipboard capture is off" : "Turn on Full Access to save clips"
+                case .classifiedAsSkip, .skippedSensitiveType:
+                    state.toast = "Nothing new to save"
+                case .imageCaptureNeeded, .noChange, .pendingTap:
+                    break
+                }
+            }
+        }
+
+        /// Shared by `quickCaptureClipboard()` and `presentClipboardPanel()`
+        /// — both are triggered by a direct toolbar tap, so both can read
+        /// the pasteboard's actual content immediately (`readPendingTap`
+        /// ignores `changeCount`, unlike the background poll's `.onTap`
+        /// deferral) rather than depending on the poll/chip having already
+        /// caught it.
+        @discardableResult
+        private func performQuickCapture() async -> ClipboardMonitor.CaptureOutcome {
+            guard hasFullAccess, settings.clipboard.enabled, settings.clipboard.captureMode != .off, !state.incognito else {
+                return .blocked
+            }
+            return await clipboardService.readPendingTap(settings: settings.clipboard)
+        }
+
         // MARK: - Insert (§6.5.5)
 
         private func insertClip(_ clip: Clip) async {
@@ -141,7 +177,16 @@
             state.mode = .clipboard
             let model = ClipboardPanelModel(hasFullAccess: hasFullAccess, isCapturePaused: settings.clipboard.captureMode == .off)
             wireClipboardPanel(model)
-            Task { await self.reloadClipboardPanel(model) }
+            Task { [weak self] in
+                guard let self else { return }
+                // Opening the panel is itself a direct tap, so it doubles as
+                // a manual "grab whatever's on the clipboard right now"
+                // action (same reasoning as `quickCaptureClipboard()`) —
+                // runs before the reload below so a freshly-grabbed clip
+                // shows up in Recent immediately.
+                await performQuickCapture()
+                await reloadClipboardPanel(model)
+            }
             onPresentClipboardPanel?(model)
         }
 
