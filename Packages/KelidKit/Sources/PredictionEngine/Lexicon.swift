@@ -311,7 +311,18 @@ public struct Lexicon: Sendable {
         let startNode = file.node(at: startIndex)
         heap.insert(HeapItem(nodeIndex: startIndex, maxScore: startNode.maxScore))
         var collected: [LexiconCompletion] = []
-        while let top = heap.popMax() {
+        // Real device bug: a short typed prefix leaves every first letter
+        // "within budget" (see `prefixMode` above), so this runs once per
+        // letter — and unlike `completions(prefixKey:)` above, it had no
+        // visit cap or periodic `collected` truncation. Ties on the same
+        // quantized `maxScore` defeat the `<` early-exit below, degrading to
+        // a near-exhaustive walk whose O(`collected.count`) `min()` per pop
+        // hung the whole actor for tens of seconds. Fixes mirror
+        // `completions(prefixKey:)`'s own mitigation.
+        var visited = 0
+        let visitBudget = 2000
+        while let top = heap.popMax(), visited < visitBudget {
+            visited += 1
             if collected.count >= limit, top.maxScore < (collected.map(\.score).min() ?? 0) {
                 break
             }
@@ -319,6 +330,9 @@ public struct Lexicon: Sendable {
             if node.isTerminal {
                 for id in file.terminalWordIDs(at: node.termList) {
                     collected.append(LexiconCompletion(wordID: id, surface: file.surface(id), score: file.score(id)))
+                }
+                if collected.count > limit * 4 {
+                    collected = Self.sorted(collected).prefix(limit).map { $0 }
                 }
             }
             if node.hasChildren {
