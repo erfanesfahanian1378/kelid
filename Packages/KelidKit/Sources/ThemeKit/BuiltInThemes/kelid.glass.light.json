@@ -26,14 +26,14 @@
       "text": "#FFFFFF",
       "pressedFill": "#409CFFCC"
     },
-    "cornerRadius": 8.0,
+    "cornerRadius": 14.0,
     "borderWidth": 0.0,
     "borderColor": "#00000000",
     "shadow": {
       "color": "#000000",
-      "opacity": 0.15,
-      "radius": 0.0,
-      "offsetY": 1.0
+      "opacity": 0.18,
+      "radius": 3.0,
+      "offsetY": 1.5
     },
     "hintText": "#8E8E93"
   },
