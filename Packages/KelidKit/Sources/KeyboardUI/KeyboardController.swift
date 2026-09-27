@@ -143,7 +143,11 @@
 
         // MARK: - Prediction (Phase 7, implementation in +Suggestions.swift)
 
-        let suggestionService: SuggestionService
+        /// `public`, not `internal` — `KeyboardViewController` (a different
+        /// module) reads `suggestionService.loadedLanguages` for the debug
+        /// overlay (task 3.18), to tell "still loading"/"quietly failed to
+        /// load" apart from "no completions for this exact prefix."
+        public let suggestionService: SuggestionService
         /// §6.7.4's `generation`: incremented once per `.requestSuggestions`
         /// effect, so a `suggest(_:)` result that comes back after a newer
         /// request already superseded it is dropped instead of overwriting

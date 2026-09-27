@@ -157,6 +157,17 @@ public actor SuggestionService {
 
     public init() {}
 
+    /// Diagnostic-only (task 3.18's debug overlay): which languages
+    /// actually finished loading a real `.klm` — `load(languages:resources:)`
+    /// silently skips (via `continue`, no log, no thrown error) any
+    /// language whose `ModelLocator` returns `nil`, so this is the only way
+    /// to tell "predictions are quietly empty for this language" apart from
+    /// "predictions are still loading" or "the typed prefix genuinely has
+    /// no completions" from outside this actor.
+    public var loadedLanguages: Set<LanguageID> {
+        Set(lexicons.keys)
+    }
+
     public func load(languages: [LanguageID], resources: any ModelLocator) async throws {
         for language in languages {
             guard let url = resources.url(for: language) else { continue }

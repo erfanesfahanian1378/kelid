@@ -469,7 +469,14 @@ final class KeyboardViewController: UIInputViewController {
             let dbState = await services.database.state
             let fullAccess = hasFullAccess ? "✓" : "✗"
             let memoryMB = String(format: "%.1f", MemoryProbe.footprintMB())
-            var text = "FA \(fullAccess) · DB \(Self.describe(dbState)) · mem \(memoryMB)MB · iOS \(UIDevice.current.systemVersion)"
+            // Task 3.18 + real device debugging: `loadPredictionModels()`'s
+            // `try?` swallows a language whose `.klm` silently failed to
+            // resolve/parse — this is the one place that failure becomes
+            // visible at all, short of a debugger.
+            let loadedLanguages = await controller?.suggestionService.loadedLanguages ?? []
+            let predictionStatus = LanguageID.allCases.map { loadedLanguages.contains($0) ? "\($0.rawValue)✓" : "\($0.rawValue)✗" }
+                .joined(separator: " ")
+            var text = "FA \(fullAccess) · DB \(Self.describe(dbState)) · pred \(predictionStatus) · mem \(memoryMB)MB · iOS \(UIDevice.current.systemVersion)"
             if let mergeResult = services.lastUserModelMergeResult {
                 text += " · \(mergeResult)"
             }
