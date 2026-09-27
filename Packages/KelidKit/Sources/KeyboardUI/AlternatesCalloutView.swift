@@ -42,7 +42,7 @@
             primaryText = primary
             self.alternates = alternates
             self.direction = direction
-            backgroundColor = style.keyFill
+            backgroundColor = style.calloutFill
             layer.cornerRadius = style.cornerRadius
 
             let cellWidth = keyFrame.width
@@ -92,7 +92,7 @@
                 let label = UILabel()
                 label.textAlignment = .center
                 label.font = .systemFont(ofSize: fontSize * 1.2, weight: .regular)
-                label.textColor = style.labelColor
+                label.textColor = style.calloutText
                 label.adjustsFontSizeToFitWidth = true
                 addSubview(label)
                 return label

@@ -8,6 +8,7 @@
     import KelidStorage
     import KeyboardLayout
     import PredictionEngine
+    import ThemeKit
     import UIKit
 
     /// Wires touch → `InputProcessor` → `TextDocument` → effects → UI (task 3.8).
@@ -77,7 +78,7 @@
         public var onPresentQuickSettings: (
             (
                 _ current: QuickSettingsSnapshot, _ resetDefaults: QuickSettingsSnapshot, _ incognito: Bool,
-                _ personalWordCount: Int
+                _ personalWordCount: Int, _ availableThemes: [Theme]
             ) -> Void
         )?
         public var onDismissQuickSettings: (() -> Void)?
@@ -174,6 +175,17 @@
         /// can invalidate/reference it if a future phase needs to.
         var userModelFlushTimer: Timer?
 
+        /// Task 11.1/11.2: resolved once per `restyle()` call from
+        /// `settings.appearance` + these two — `builtInThemeCatalog` caches
+        /// its parsed JSON internally, `themeStore` is a thin, stateless
+        /// wrapper over `containerPaths`.
+        let containerPaths: ContainerPaths
+        let builtInThemeCatalog = BuiltInThemeCatalog()
+        var themeStore: ThemeStore
+        /// `.themesChanged` — the app's theme editor (task 11.8) can save or
+        /// delete a custom theme while this keyboard is already on screen.
+        var themesObservationToken: DarwinObservationToken?
+
         public init(
             settings: KeyboardSettings,
             metrics: KeyboardMetrics,
@@ -183,6 +195,7 @@
             clipboardService: ClipboardService,
             suggestionService: SuggestionService,
             userModelDatabase: DatabaseManager,
+            containerPaths: ContainerPaths,
             documentProvider: @escaping () -> TextDocument
         ) {
             self.settings = settings
@@ -195,6 +208,8 @@
             self.suggestionService = suggestionService
             self.userModelDatabase = userModelDatabase
             snippetRepository = SnippetRepository(database: userModelDatabase)
+            self.containerPaths = containerPaths
+            themeStore = ThemeStore(paths: containerPaths)
             self.documentProvider = documentProvider
             inputProcessor = InputProcessor(
                 settings: InputSettings(settings.general, clipSmartSpacing: settings.clipboard.smartSpacing),
@@ -218,6 +233,16 @@
             loadPredictionModels()
             loadSnippetShortcuts()
             observeSnippetChanges()
+            observeThemeChanges()
+        }
+
+        /// Called once from `init` — §6.8.3: "Resolved on ... `.themes.changed`."
+        private func observeThemeChanges() {
+            themesObservationToken = DarwinNotifier.shared.observe(.themesChanged) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.restyle()
+                }
+            }
         }
 
         // MARK: - Settings / metrics / geometry updates
@@ -330,9 +355,7 @@
                 feedbackService.prepareHaptic(style: style)
                 feedbackService.fireHaptic()
             }
-            if let soundID = soundID(for: kind) {
-                feedbackService.playSound(soundID)
-            }
+            playFeedbackSound(for: kind)
         }
 
         /// `internal`, not `private` — `+ResizeMode.swift` (a separate file)
@@ -349,15 +372,23 @@
             }
         }
 
-        /// `.soft`/`.typewriter` custom sound sets need real audio assets
-        /// (Phase 11 theming); until then any non-`.off` choice plays the
-        /// standard system click.
-        private func soundID(for kind: FeedbackKind) -> FeedbackService.SoundID? {
-            guard settings.appearance.sound != .off else { return nil }
-            return switch kind {
-            case .keyPress: .standardKeyPress
-            case .specialKeyPress: .modifierKeyPress
-            case .error: nil
+        /// Task 11.5: `.system` plays the standard iOS click IDs;
+        /// `.soft`/`.typewriter` play the bundled custom `.caf` packs.
+        private func playFeedbackSound(for kind: FeedbackKind) {
+            switch settings.appearance.sound {
+            case .off:
+                break
+            case .system:
+                let soundID: FeedbackService.SoundID? = switch kind {
+                case .keyPress: .standardKeyPress
+                case .specialKeyPress: .modifierKeyPress
+                case .error: nil
+                }
+                if let soundID {
+                    feedbackService.playSound(soundID)
+                }
+            case .soft, .typewriter:
+                feedbackService.playCustomSound(pack: settings.appearance.sound, kind: kind)
             }
         }
 

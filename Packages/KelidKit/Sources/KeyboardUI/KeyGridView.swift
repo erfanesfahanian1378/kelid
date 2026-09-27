@@ -1,5 +1,6 @@
 #if canImport(UIKit)
     import InputEngine
+    import KelidSettings
     import KeyboardLayout
     import UIKit
 
@@ -44,6 +45,9 @@
         /// this in sync; alternates (task 3.4) always show regardless, since
         /// they're how a long-press *works*, not a decoration.
         var keyPopupsEnabled = true
+        /// `AppearanceSettings.keyPressAnimation` (task 11.7) — `KeyboardController`
+        /// keeps this in sync the same way as `keyPopupsEnabled`.
+        var keyPressAnimation: KeyPressAnimation = .none
 
         let touchTracker: KeyTouchTracker
         private let bottomLiftView = BottomLiftView(frame: .zero)
@@ -103,6 +107,7 @@
                         fontSize: fontSize,
                         style: style,
                         isSpecial: isSpecialKey(key.definition),
+                        isAccent: isAccentKey(key.definition),
                         isPressed: false,
                         accessibilityLabel: accessibilityLabel(for: key.definition)
                     )
@@ -174,6 +179,14 @@
 
         private func isSpecialKey(_ key: KeyDefinition) -> Bool {
             key.action != .char
+        }
+
+        /// §6.8.1's `keys.accent` — applied to the return key, matching the
+        /// real iOS keyboard's own "primary action" styling (e.g. a blue
+        /// Search/Go/Done return key); no other key in this project's own
+        /// layouts is a comparable "primary action" candidate.
+        private func isAccentKey(_ key: KeyDefinition) -> Bool {
+            key.action == .return
         }
 
         private func accessibilityLabel(for key: KeyDefinition) -> String {
@@ -274,7 +287,7 @@
             for event in events {
                 switch event {
                 case let .pressBegan(keyID):
-                    keyViews[keyID]?.setPressed(true)
+                    keyViews[keyID]?.setPressed(true, animation: keyPressAnimation)
                     showCalloutIfNeeded(forKeyID: keyID)
                 case let .pressEnded(keyID), let .cancelled(keyID):
                     keyViews[keyID]?.setPressed(false)

@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.dark",
+  "name": {
+    "en": "Dark",
+    "fa": "تیره"
+  },
+  "isDark": true,
+  "background": {
+    "type": "color",
+    "color": "#1C1C1E"
+  },
+  "keys": {
+    "normal": {
+      "fill": "#3A3A3C",
+      "text": "#FFFFFF",
+      "pressedFill": "#5A5A5E"
+    },
+    "special": {
+      "fill": "#2C2C2E",
+      "text": "#FFFFFF",
+      "pressedFill": "#48484A"
+    },
+    "accent": {
+      "fill": "#0A84FF",
+      "text": "#FFFFFF",
+      "pressedFill": "#409CFF"
+    },
+    "cornerRadius": 5.0,
+    "borderWidth": 0.0,
+    "borderColor": "#00000000",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.35,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#9A9A9E"
+  },
+  "fonts": {
+    "weight": "regular",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#00000000",
+    "icon": "#EBEBF5",
+    "suggestionText": "#FFFFFF",
+    "divider": "#48484A",
+    "chipFill": "#3A3A3C"
+  },
+  "callout": {
+    "fill": "#6C6C70",
+    "text": "#FFFFFF"
+  },
+  "panel": {
+    "background": "#1C1C1E",
+    "rowFill": "#2C2C2E",
+    "text": "#FFFFFF",
+    "secondaryText": "#8E8E93",
+    "accent": "#0A84FF"
+  }
+}

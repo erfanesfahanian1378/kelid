@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.saffron",
+  "name": {
+    "en": "Saffron",
+    "fa": "زعفران"
+  },
+  "isDark": false,
+  "background": {
+    "type": "color",
+    "color": "#FFF6E5"
+  },
+  "keys": {
+    "normal": {
+      "fill": "#FFFFFF",
+      "text": "#3A2A12",
+      "pressedFill": "#FCE9C4"
+    },
+    "special": {
+      "fill": "#F5DCA0",
+      "text": "#3A2A12",
+      "pressedFill": "#EBCB80"
+    },
+    "accent": {
+      "fill": "#E8A33D",
+      "text": "#3A2A12",
+      "pressedFill": "#F2B65A"
+    },
+    "cornerRadius": 5.0,
+    "borderWidth": 0.0,
+    "borderColor": "#00000000",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.35,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#8A6D3D"
+  },
+  "fonts": {
+    "weight": "regular",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#FFF6E5",
+    "icon": "#6B4A1E",
+    "suggestionText": "#3A2A12",
+    "divider": "#EBD9AF",
+    "chipFill": "#FFFFFF"
+  },
+  "callout": {
+    "fill": "#FFFFFF",
+    "text": "#3A2A12"
+  },
+  "panel": {
+    "background": "#FFF6E5",
+    "rowFill": "#FFFFFF",
+    "text": "#3A2A12",
+    "secondaryText": "#8A6D3D",
+    "accent": "#E8A33D"
+  }
+}

@@ -2,6 +2,7 @@
     import KelidCore
     import KelidSettings
     import SwiftUI
+    import ThemeKit
 
     /// Task 4.6's in-keyboard Quick Settings panel — a first version:
     /// everything that's meaningfully useful to reach without leaving the
@@ -34,12 +35,17 @@
         /// `KeyboardController` has actually asked `SuggestionService` for
         /// the count (an async round trip this view can't make itself).
         let personalWordCount: Int?
+        /// Task 11.9: built-in + custom themes, for the theme pickers below —
+        /// computed once by `KeyboardController` when presenting this panel
+        /// (`builtInThemeCatalog.allThemes() + themeStore.listCustomThemes()`).
+        let availableThemes: [Theme]
 
         public init(
             snapshot: QuickSettingsSnapshot,
             resetSizeDefaults: QuickSettingsSnapshot,
             incognito: Bool,
             personalWordCount: Int?,
+            availableThemes: [Theme],
             onChange: @escaping (QuickSettingsSnapshot) -> Void,
             onResizeVisually: @escaping () -> Void,
             onToggleIncognito: @escaping () -> Void,
@@ -50,6 +56,7 @@
             self.resetSizeDefaults = resetSizeDefaults
             _incognito = State(initialValue: incognito)
             self.personalWordCount = personalWordCount
+            self.availableThemes = availableThemes
             self.onChange = onChange
             self.onResizeVisually = onResizeVisually
             self.onToggleIncognito = onToggleIncognito
@@ -60,6 +67,7 @@
         public var body: some View {
             NavigationStack {
                 Form {
+                    appearanceSection
                     sizeSection
                     typingSection
                     languageSection
@@ -80,6 +88,48 @@
                 }
             }
             .onChange(of: snapshot) { _, newValue in onChange(newValue) }
+        }
+
+        /// Task 11.9: theme mode + a built-in/custom theme picker, with a
+        /// small color-swatch "thumbnail" per theme (its `panel.background`/
+        /// `keys.accent` colors) — a full mini-rendered-keyboard thumbnail
+        /// per theme would need `KeyboardPreviewView`'s heavier real
+        /// rendering pipeline, more than this compact panel needs.
+        private var appearanceSection: some View {
+            Section("Appearance") {
+                Picker("Theme", selection: $snapshot.themeMode) {
+                    Text("Follow app").tag(ThemeMode.followApp)
+                    Text("Follow system").tag(ThemeMode.followSystem)
+                    Text("Fixed").tag(ThemeMode.fixed)
+                }
+                switch snapshot.themeMode {
+                case .fixed:
+                    themePicker("Theme", selection: $snapshot.fixedThemeID)
+                case .followSystem, .followApp:
+                    themePicker("Light theme", selection: $snapshot.lightThemeID)
+                    themePicker("Dark theme", selection: $snapshot.darkThemeID)
+                }
+            }
+        }
+
+        private func themePicker(_ title: String, selection: Binding<String>) -> some View {
+            Picker(selection: selection) {
+                ForEach(availableThemes, id: \.id) { theme in
+                    Label {
+                        Text(theme.name.en)
+                    } icon: {
+                        Circle().fill(swatchColor(for: theme)).frame(width: 14, height: 14)
+                    }
+                    .tag(theme.id)
+                }
+            } label: {
+                Text(title)
+            }
+        }
+
+        private func swatchColor(for theme: Theme) -> Color {
+            guard let parsed = ThemeHexColor(hex: theme.keys.accent.fill) else { return theme.isDark ? .black : .white }
+            return Color(red: parsed.red, green: parsed.green, blue: parsed.blue, opacity: parsed.alpha)
         }
 
         private var sizeSection: some View {

@@ -1,5 +1,6 @@
 #if canImport(UIKit)
     import KelidSettings
+    import ThemeKit
 
     /// Quick Settings (task 4.6) — split out of `KeyboardController.swift`
     /// itself purely to keep that type's body under SwiftLint's
@@ -17,12 +18,13 @@
                 )
                 let incognito = state.incognito
                 let language = state.language
+                let availableThemes = builtInThemeCatalog.allThemes() + themeStore.listCustomThemes()
                 // Task 9.10: the personal-word count is an async round trip
                 // to `SuggestionService` — the panel opens once it's ready
                 // rather than presenting with a stale/placeholder count.
                 Task { [weak self, suggestionService] in
                     let count = await suggestionService.personalWordCount(for: language)
-                    self?.onPresentQuickSettings?(currentSnapshot, resetDefaults, incognito, count)
+                    self?.onPresentQuickSettings?(currentSnapshot, resetDefaults, incognito, count, availableThemes)
                 }
             }
         }

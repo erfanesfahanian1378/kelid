@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.contrast",
+  "name": {
+    "en": "High Contrast",
+    "fa": "کنتراست بالا"
+  },
+  "isDark": true,
+  "background": {
+    "type": "color",
+    "color": "#000000"
+  },
+  "keys": {
+    "normal": {
+      "fill": "#000000",
+      "text": "#FFFFFF",
+      "pressedFill": "#333333"
+    },
+    "special": {
+      "fill": "#000000",
+      "text": "#FFFFFF",
+      "pressedFill": "#333333"
+    },
+    "accent": {
+      "fill": "#FFFF00",
+      "text": "#000000",
+      "pressedFill": "#CFCF00"
+    },
+    "cornerRadius": 4.0,
+    "borderWidth": 2.0,
+    "borderColor": "#FFFFFF",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.0,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#FFFFFF"
+  },
+  "fonts": {
+    "weight": "regular",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#000000",
+    "icon": "#FFFFFF",
+    "suggestionText": "#FFFFFF",
+    "divider": "#FFFFFF",
+    "chipFill": "#000000"
+  },
+  "callout": {
+    "fill": "#000000",
+    "text": "#FFFFFF"
+  },
+  "panel": {
+    "background": "#000000",
+    "rowFill": "#111111",
+    "text": "#FFFFFF",
+    "secondaryText": "#CCCCCC",
+    "accent": "#FFFF00"
+  }
+}

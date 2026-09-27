@@ -40,8 +40,8 @@
         func show(text: String, above keyFrame: CGRect, fontSize: CGFloat, style: KeyStyle, containerBounds: CGRect) {
             label.text = text
             label.font = .systemFont(ofSize: fontSize * 1.5, weight: .regular)
-            label.textColor = style.labelColor
-            backgroundColor = style.keyFill
+            label.textColor = style.calloutText
+            backgroundColor = style.calloutFill
             layer.cornerRadius = style.cornerRadius
 
             let width = max(keyFrame.width, keyFrame.width * 1.1)

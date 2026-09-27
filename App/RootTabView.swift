@@ -24,7 +24,7 @@ struct RootTabView: View {
             .tabItem { Label("Dictionary", systemImage: "character.book.closed") }
 
             NavigationStack {
-                ThemesPlaceholderView()
+                ThemeGalleryView(services: services)
             }
             .tabItem { Label("Themes", systemImage: "paintpalette") }
 
@@ -36,19 +36,5 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: Binding(get: { !hasCompletedOnboarding }, set: { _ in })) {
             OnboardingView(onDone: { hasCompletedOnboarding = true })
         }
-    }
-}
-
-/// Phase 11 builds the real gallery/editor (§6.8.7) — this placeholder just
-/// keeps the 5-tab shell (§6.10's own spec) accurate about what's coming,
-/// rather than silently omitting the tab until then.
-private struct ThemesPlaceholderView: View {
-    var body: some View {
-        ContentUnavailableView(
-            "Themes coming soon",
-            systemImage: "paintpalette",
-            description: Text("Theme galleries and a custom theme editor arrive in a later update.")
-        )
-        .navigationTitle("Themes")
     }
 }

@@ -3,6 +3,7 @@ import Foundation
 import KelidCore
 import KelidSettings
 import KelidStorage
+import ThemeKit
 
 /// Process-level services shared by the whole app (task 10.1) — the
 /// app-side counterpart of `Keyboard/KeyboardServices.swift`. Unlike the
@@ -16,14 +17,28 @@ final class AppServices {
     let database: DatabaseManager
     let clipRepository: ClipRepository
     let snippetRepository: SnippetRepository
+    let containerPaths: ContainerPaths
+    let themeStore: ThemeStore
+    let builtInThemeCatalog = BuiltInThemeCatalog()
 
     init() {
         settings = SettingsStore()
         let paths = ContainerPaths.resolve(fullAccess: true)
+        containerPaths = paths
+        themeStore = ThemeStore(paths: paths)
         let manager = DatabaseManager(fileURL: paths.databaseURL)
         database = manager
         clipRepository = ClipRepository(database: manager)
         snippetRepository = SnippetRepository(database: manager)
+        // §6.8.4: registered once per process — the app is its own process,
+        // separate from the keyboard extension, so each registers its own copy.
+        FontRegistrar.registerVazirmatn()
+    }
+
+    /// Every theme the picker/gallery can offer: built-ins plus whatever's
+    /// in the App Group's `Themes/` directory.
+    func availableThemes() -> [Theme] {
+        builtInThemeCatalog.allThemes() + themeStore.listCustomThemes()
     }
 
     /// Call once from `KelidApp.init`/`.task` — opens (and migrates) the

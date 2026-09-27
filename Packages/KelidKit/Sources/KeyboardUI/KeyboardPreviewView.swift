@@ -3,6 +3,7 @@
     import KelidSettings
     import KeyboardLayout
     import SwiftUI
+    import ThemeKit
     import UIKit
 
     /// Recomputes the real `LayoutEngine`/`KeyGridView` pipeline whenever its
@@ -16,6 +17,11 @@
         var metrics = KeyboardMetrics(sizeProfile: .portraitDefault)
         var direction: Direction = .rtl
         var isLanguageRTL = true
+        /// Task 11.8's theme editor passes the theme being edited, for a
+        /// truly live preview; `nil` (every other caller, e.g. Size & Layout)
+        /// falls back to the system trait's light/dark fallback theme, same
+        /// behavior this preview always had before real theming existed.
+        var theme: Theme?
 
         override public init(frame: CGRect) {
             super.init(frame: frame)
@@ -38,10 +44,11 @@
         func refresh() {
             guard let layoutFile, keyGridView.bounds.width > 0 else { return }
             let computed = LayoutEngine.compute(page: page, in: keyGridView.bounds, metrics: metrics, direction: direction)
+            let resolvedTheme = theme ?? (traitCollection.userInterfaceStyle == .dark ? .fallbackDark : .fallbackLight)
             keyGridView.apply(
                 layout: computed,
                 layoutFile: layoutFile,
-                style: .resolve(traitAppearance: traitCollection.userInterfaceStyle == .dark ? .dark : .light, fieldAppearance: nil),
+                style: .make(from: resolvedTheme, themeStore: nil),
                 fontSize: metrics.baseFontSize,
                 direction: direction,
                 isLanguageRTL: isLanguageRTL
@@ -60,10 +67,14 @@
     public struct KeyboardPreviewView: UIViewRepresentable {
         public var profile: SizeProfile
         public var language: LanguageID
+        /// Task 11.8: pass the theme under edit for a truly live preview;
+        /// `nil` (every non-theme-editor caller) resolves from the system trait.
+        public var theme: Theme?
 
-        public init(profile: SizeProfile, language: LanguageID = .fa) {
+        public init(profile: SizeProfile, language: LanguageID = .fa, theme: Theme? = nil) {
             self.profile = profile
             self.language = language
+            self.theme = theme
         }
 
         public func makeUIView(context _: Context) -> KeyboardPreviewHostView {
@@ -83,6 +94,7 @@
             view.metrics = KeyboardMetrics(sizeProfile: profile)
             view.direction = language == .fa ? .rtl : .ltr
             view.isLanguageRTL = language == .fa
+            view.theme = theme
             view.setNeedsLayout()
             view.refresh()
         }

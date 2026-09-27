@@ -7,6 +7,7 @@ import KeyboardLayout
 import KeyboardUI
 import PredictionEngine
 import SwiftUI
+import ThemeKit
 import UIKit
 
 /// Keyboard extension entry point.
@@ -44,6 +45,9 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         Log.configure(bundleID: Bundle.main.bundleIdentifier)
+        // §6.8.4: registered once per process — this extension is its own
+        // process, separate from the app, so each must register its own copy.
+        FontRegistrar.registerVazirmatn()
         inputView?.allowsSelfSizing = true
         buildUI()
         observeExtensionLifecycleNotifications()
@@ -142,6 +146,7 @@ final class KeyboardViewController: UIInputViewController {
             clipboardService: makeClipboardService(),
             suggestionService: SuggestionService(),
             userModelDatabase: services.database,
+            containerPaths: ContainerPaths.resolve(fullAccess: hasFullAccess),
             documentProvider: { document }
         )
         newController.onNextInputMode = { [weak self] in self?.advanceToNextInputMode() }
@@ -157,12 +162,14 @@ final class KeyboardViewController: UIInputViewController {
             self?.presentOverlay(UIHostingController(rootView: view))
         }
         newController.onDismissResizeOverlay = { [weak self] in self?.dismissOverlay() }
-        newController.onPresentQuickSettings = { [weak self, weak newController] snapshot, resetDefaults, incognito, personalWordCount in
+        newController.onPresentQuickSettings = {
+            [weak self, weak newController] snapshot, resetDefaults, incognito, personalWordCount, availableThemes in
             let view = QuickSettingsView(
                 snapshot: snapshot,
                 resetSizeDefaults: resetDefaults,
                 incognito: incognito,
                 personalWordCount: personalWordCount,
+                availableThemes: availableThemes,
                 onChange: { updated in newController?.applyQuickSettingsChange(updated) },
                 onResizeVisually: { newController?.requestResizeFromQuickSettings() },
                 onToggleIncognito: { newController?.toggleIncognito() },
@@ -175,8 +182,9 @@ final class KeyboardViewController: UIInputViewController {
             self?.presentOverlay(UIHostingController(rootView: view))
         }
         newController.onDismissQuickSettings = { [weak self] in self?.dismissOverlay() }
-        newController.onPresentClipboardPanel = { [weak self] model in
-            self?.presentOverlay(UIHostingController(rootView: ClipboardPanelView(model: model)))
+        newController.onPresentClipboardPanel = { [weak self, weak newController] model in
+            let theme = newController.map { KelidTheme(theme: $0.resolveCurrentTheme()) } ?? .systemDefault
+            self?.presentOverlay(UIHostingController(rootView: ClipboardPanelView(model: model).environment(\.kelidTheme, theme)))
         }
         newController.onDismissClipboardPanel = { [weak self] in self?.dismissOverlay() }
         newController.onPresentEditPanel = { [weak self] model in

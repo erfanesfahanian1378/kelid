@@ -43,6 +43,11 @@ targets:
             UTTypeConformsTo: [public.json]
             UTTypeTagSpecification:
               public.filename-extension: [kelidbackup]
+          - UTTypeIdentifier: com.example.kelid.theme
+            UTTypeDescription: Kelid Theme
+            UTTypeConformsTo: [public.json]
+            UTTypeTagSpecification:
+              public.filename-extension: [kelidtheme]
     entitlements:
       path: App/Kelid.entitlements
       properties:
@@ -57,6 +62,7 @@ targets:
       - { package: KelidKit, product: KeyboardLayout }
       - { package: KelidKit, product: ClipboardKit }
       - { package: KelidKit, product: PersianText }
+      - { package: KelidKit, product: ThemeKit }
   KelidKeyboard:
     type: app-extension
     platform: iOS

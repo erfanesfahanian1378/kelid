@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.solarized.light",
+  "name": {
+    "en": "Solarized",
+    "fa": "سولارایزد"
+  },
+  "isDark": false,
+  "background": {
+    "type": "color",
+    "color": "#FDF6E3"
+  },
+  "keys": {
+    "normal": {
+      "fill": "#EEE8D5",
+      "text": "#002B36",
+      "pressedFill": "#DDD6C1"
+    },
+    "special": {
+      "fill": "#FDF6E3",
+      "text": "#586E75",
+      "pressedFill": "#EEE8D5"
+    },
+    "accent": {
+      "fill": "#268BD2",
+      "text": "#FDF6E3",
+      "pressedFill": "#2AA198"
+    },
+    "cornerRadius": 5.0,
+    "borderWidth": 0.0,
+    "borderColor": "#00000000",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.35,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#657B83"
+  },
+  "fonts": {
+    "weight": "regular",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#FDF6E3",
+    "icon": "#586E75",
+    "suggestionText": "#002B36",
+    "divider": "#EEE8D5",
+    "chipFill": "#EEE8D5"
+  },
+  "callout": {
+    "fill": "#EEE8D5",
+    "text": "#002B36"
+  },
+  "panel": {
+    "background": "#FDF6E3",
+    "rowFill": "#EEE8D5",
+    "text": "#002B36",
+    "secondaryText": "#657B83",
+    "accent": "#268BD2"
+  }
+}

@@ -130,11 +130,11 @@ let package = Package(
         .target(
             name: "ThemeKit",
             dependencies: ["KelidCore"],
-            resources: [.process("BuiltInThemes")]
+            resources: [.process("BuiltInThemes"), .copy("Fonts")]
         ),
         .testTarget(
             name: "ThemeKitTests",
-            dependencies: ["ThemeKit"]
+            dependencies: ["ThemeKit", "KelidCore"]
         ),
 
         // MARK: - EmojiData
@@ -172,6 +172,7 @@ let package = Package(
             dependencies: [
                 "KeyboardUI",
                 "PredictionEngine",
+                "ThemeKit",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             ]
         ),

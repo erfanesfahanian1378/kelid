@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.nord",
+  "name": {
+    "en": "Nord",
+    "fa": "نورد"
+  },
+  "isDark": true,
+  "background": {
+    "type": "color",
+    "color": "#2E3440"
+  },
+  "keys": {
+    "normal": {
+      "fill": "#3B4252",
+      "text": "#ECEFF4",
+      "pressedFill": "#434C5E"
+    },
+    "special": {
+      "fill": "#2E3440",
+      "text": "#D8DEE9",
+      "pressedFill": "#3B4252"
+    },
+    "accent": {
+      "fill": "#88C0D0",
+      "text": "#2E3440",
+      "pressedFill": "#8FBCBB"
+    },
+    "cornerRadius": 5.0,
+    "borderWidth": 0.0,
+    "borderColor": "#00000000",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.35,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#7B88A1"
+  },
+  "fonts": {
+    "weight": "regular",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#2E3440",
+    "icon": "#D8DEE9",
+    "suggestionText": "#ECEFF4",
+    "divider": "#434C5E",
+    "chipFill": "#3B4252"
+  },
+  "callout": {
+    "fill": "#434C5E",
+    "text": "#ECEFF4"
+  },
+  "panel": {
+    "background": "#2E3440",
+    "rowFill": "#3B4252",
+    "text": "#ECEFF4",
+    "secondaryText": "#D8DEE9",
+    "accent": "#88C0D0"
+  }
+}

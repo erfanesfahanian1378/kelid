@@ -23,6 +23,12 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
     public var haptics: HapticsChoice
     public var spaceTrackpad: SpaceTrackpadMode
 
+    // Appearance/theme (§6.1.8, task 11.9)
+    public var themeMode: ThemeMode
+    public var lightThemeID: String
+    public var darkThemeID: String
+    public var fixedThemeID: String
+
     // Language (§6.1.2)
     public var enabledLanguages: [LanguageID]
     public var persianDigits: PersianDigitsMode
@@ -70,6 +76,10 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
         sound = settings.appearance.sound
         haptics = settings.appearance.haptics
         spaceTrackpad = settings.general.spaceTrackpad
+        themeMode = settings.appearance.themeMode
+        lightThemeID = settings.appearance.lightThemeID
+        darkThemeID = settings.appearance.darkThemeID
+        fixedThemeID = settings.appearance.fixedThemeID
         enabledLanguages = settings.general.enabledLanguages
         persianDigits = settings.general.persianDigits
         clipboardEnabled = settings.clipboard.enabled
@@ -123,6 +133,10 @@ public struct QuickSettingsSnapshot: Equatable, Sendable {
         settings.appearance.sound = sound
         settings.appearance.haptics = haptics
         settings.general.spaceTrackpad = spaceTrackpad
+        settings.appearance.themeMode = themeMode
+        settings.appearance.lightThemeID = lightThemeID
+        settings.appearance.darkThemeID = darkThemeID
+        settings.appearance.fixedThemeID = fixedThemeID
         settings.general.enabledLanguages = enabledLanguages
         settings.general.persianDigits = persianDigits
         settings.clipboard.enabled = clipboardEnabled

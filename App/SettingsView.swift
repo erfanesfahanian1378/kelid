@@ -2,6 +2,7 @@ import KelidCore
 import KelidSettings
 import KeyboardUI
 import SwiftUI
+import ThemeKit
 
 /// Task 10.3: every key in §6.1, grouped the same way §6.1 itself groups
 /// them — each section links to its own screen rather than one giant Form,
@@ -158,11 +159,30 @@ private struct ToolbarSettingsView: View {
 
 private struct AppearanceSettingsView: View {
     let services: AppServices
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// Mirrors `KeyboardController.resolveCurrentTheme()`'s §6.8.3 logic, so
+    /// this screen's live preview shows exactly what the keyboard itself
+    /// would render — using the app's own `colorScheme` in place of the
+    /// keyboard's system/field trait (the app has no notion of "the field's
+    /// keyboardAppearance," so `.followApp` and `.followSystem` behave the
+    /// same way here).
+    private var resolvedTheme: Theme {
+        let appearance = services.settings.settings.appearance
+        let mode: ThemeResolutionMode = switch appearance.themeMode {
+        case .fixed: .fixed(themeID: appearance.fixedThemeID)
+        case .followSystem: .followSystem(lightThemeID: appearance.lightThemeID, darkThemeID: appearance.darkThemeID)
+        case .followApp: .followApp(lightThemeID: appearance.lightThemeID, darkThemeID: appearance.darkThemeID)
+        }
+        return ThemeResolver.resolve(
+            mode: mode, isDark: colorScheme == .dark, builtIns: services.builtInThemeCatalog, customStore: services.themeStore
+        )
+    }
 
     var body: some View {
         Form {
             Section {
-                KeyboardPreviewView(profile: services.settings.sizeProfile(for: .portrait), language: .fa)
+                KeyboardPreviewView(profile: services.settings.sizeProfile(for: .portrait), language: .fa, theme: resolvedTheme)
                     .frame(height: 200)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator))
@@ -173,6 +193,14 @@ private struct AppearanceSettingsView: View {
                     Text("Follow system").tag(ThemeMode.followSystem)
                     Text("Follow app").tag(ThemeMode.followApp)
                 }
+                switch services.settings.settings.appearance.themeMode {
+                case .fixed:
+                    themePicker("Theme", keyPath: \.appearance.fixedThemeID)
+                case .followSystem, .followApp:
+                    themePicker("Light theme", keyPath: \.appearance.lightThemeID)
+                    themePicker("Dark theme", keyPath: \.appearance.darkThemeID)
+                }
+                NavigationLink("Theme Gallery & Editor") { ThemeGalleryView(services: services) }
             }
             Section("Fonts") {
                 Picker("Persian font", selection: bind(\.appearance.persianFont)) {
@@ -207,6 +235,14 @@ private struct AppearanceSettingsView: View {
             }
         }
         .navigationTitle("Appearance")
+    }
+
+    private func themePicker(_ title: String, keyPath: WritableKeyPath<KeyboardSettings, String>) -> some View {
+        Picker(title, selection: bind(keyPath)) {
+            ForEach(services.availableThemes(), id: \.id) { theme in
+                Text(theme.name.en).tag(theme.id)
+            }
+        }
     }
 
     private func bind<T>(_ keyPath: WritableKeyPath<KeyboardSettings, T>) -> Binding<T> {

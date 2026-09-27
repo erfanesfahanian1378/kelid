@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.pastel",
+  "name": {
+    "en": "Pastel",
+    "fa": "پاستلی"
+  },
+  "isDark": false,
+  "background": {
+    "type": "color",
+    "color": "#F4F1FA"
+  },
+  "keys": {
+    "normal": {
+      "fill": "#FFFFFF",
+      "text": "#4A4458",
+      "pressedFill": "#E4DCF5"
+    },
+    "special": {
+      "fill": "#E7DFF7",
+      "text": "#4A4458",
+      "pressedFill": "#D6C9EF"
+    },
+    "accent": {
+      "fill": "#8B6FD1",
+      "text": "#FFFFFF",
+      "pressedFill": "#A88AE0"
+    },
+    "cornerRadius": 5.0,
+    "borderWidth": 0.0,
+    "borderColor": "#00000000",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.35,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#8A8098"
+  },
+  "fonts": {
+    "weight": "regular",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#F4F1FA",
+    "icon": "#6B6280",
+    "suggestionText": "#4A4458",
+    "divider": "#E1D9EF",
+    "chipFill": "#FFFFFF"
+  },
+  "callout": {
+    "fill": "#FFFFFF",
+    "text": "#4A4458"
+  },
+  "panel": {
+    "background": "#F4F1FA",
+    "rowFill": "#FFFFFF",
+    "text": "#4A4458",
+    "secondaryText": "#8A8098",
+    "accent": "#8B6FD1"
+  }
+}

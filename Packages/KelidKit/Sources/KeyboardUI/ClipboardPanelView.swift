@@ -8,6 +8,10 @@
     /// reads/calls it.
     public struct ClipboardPanelView: View {
         @Bindable var model: ClipboardPanelModel
+        /// Task 11.2: "panels (a SwiftUI environment value `KelidTheme`)" —
+        /// `KeyboardController` sets this on the hosting `UIHostingController`
+        /// (`rootView.environment(\.kelidTheme, ...)`) before presenting.
+        @Environment(\.kelidTheme) private var theme
 
         public init(model: ClipboardPanelModel) {
             self.model = model
@@ -88,6 +92,8 @@
                     }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(theme.panelBackground)
                 if model.tab == .recent {
                     Button("Clear (keep pinned)", role: .destructive) { model.onClearAll?() }
                         .padding(.vertical, 6)
@@ -125,6 +131,8 @@
                     }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(theme.panelBackground)
             }
         }
 
@@ -143,6 +151,8 @@
                     }
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(theme.panelBackground)
             }
         }
 

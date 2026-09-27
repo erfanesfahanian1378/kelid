@@ -1,65 +1,69 @@
 #if canImport(UIKit)
+    import KelidSettings
     import UIKit
 
-    /// Two hard-coded styles (light/dark) matching iOS closely (task 3.15).
-    /// Colors come from a struct now — not read directly from asset catalogs by
-    /// `KeyView` — specifically so real theming (Phase 11) only has to produce
-    /// a different `KeyStyle`, never touch `KeyView` itself.
+    /// Colors come from a struct — not read directly from asset catalogs by
+    /// `KeyView` — specifically so real theming only has to produce a
+    /// different `KeyStyle` (via `KeyStyle.make(from:themeStore:)`, in
+    /// `KeyStyle+Theme.swift`), never touch `KeyView`/`ToolbarStripView`/etc.
+    /// themselves. `.light`/`.dark` (task 3.15's original two hard-coded
+    /// styles) are now just `Theme.fallbackLight`/`.fallbackDark` run
+    /// through that same conversion — one source of truth for both the
+    /// "no theme resolved yet" fallback and the real built-in themes.
     public struct KeyStyle: Sendable, Equatable {
         public var keyFill: UIColor
         public var specialKeyFill: UIColor
         public var pressedKeyFill: UIColor
         public var pressedSpecialKeyFill: UIColor
+        public var accentKeyFill: UIColor
+        public var pressedAccentKeyFill: UIColor
         public var labelColor: UIColor
         public var specialLabelColor: UIColor
+        public var accentLabelColor: UIColor
+        public var hintTextColor: UIColor
         public var keyboardBackground: UIColor
+        public var background: KeyboardBackground
         public var cornerRadius: CGFloat
+        public var borderWidth: CGFloat
+        public var borderColor: UIColor
         public var shadowOpacity: Float
         public var shadowRadius: CGFloat
         public var shadowOffsetY: CGFloat
         public var labelFontWeight: UIFont.Weight
         public var specialLabelFontWeight: UIFont.Weight
+        public var persianFontName: String?
+        public var latinFontChoice: LatinFontChoice
+        public var fontScale: CGFloat
 
-        public static let light = KeyStyle(
-            keyFill: .white,
-            specialKeyFill: UIColor(white: 0.68, alpha: 1),
-            pressedKeyFill: UIColor(white: 0.86, alpha: 1),
-            pressedSpecialKeyFill: UIColor(white: 0.56, alpha: 1),
-            labelColor: .black,
-            specialLabelColor: .black,
-            keyboardBackground: UIColor(white: 0.82, alpha: 1),
-            cornerRadius: 5,
-            shadowOpacity: 0.35,
-            shadowRadius: 0,
-            shadowOffsetY: 1,
-            labelFontWeight: .regular,
-            specialLabelFontWeight: .regular
-        )
+        public var toolbarBackground: UIColor
+        public var toolbarIcon: UIColor
+        public var toolbarSuggestionText: UIColor
+        public var toolbarDivider: UIColor
+        public var toolbarChipFill: UIColor
 
-        public static let dark = KeyStyle(
-            keyFill: UIColor(white: 0.34, alpha: 1),
-            specialKeyFill: UIColor(white: 0.19, alpha: 1),
-            pressedKeyFill: UIColor(white: 0.46, alpha: 1),
-            pressedSpecialKeyFill: UIColor(white: 0.10, alpha: 1),
-            labelColor: .white,
-            specialLabelColor: .white,
-            keyboardBackground: .black,
-            cornerRadius: 5,
-            shadowOpacity: 0.6,
-            shadowRadius: 0,
-            shadowOffsetY: 1,
-            labelFontWeight: .regular,
-            specialLabelFontWeight: .regular
-        )
+        public var calloutFill: UIColor
+        public var calloutText: UIColor
 
-        /// §3.15: resolved from `keyboardAppearance` (field trait) or the
-        /// system trait — never both; the field trait wins when the host sets
-        /// one explicitly.
-        public static func resolve(traitAppearance: UIKeyboardAppearance, fieldAppearance: UIKeyboardAppearance?) -> KeyStyle {
-            switch fieldAppearance ?? traitAppearance {
-            case .dark: .dark
-            default: .light
-            }
-        }
+        public var panelBackground: UIColor
+        public var panelRowFill: UIColor
+        public var panelText: UIColor
+        public var panelSecondaryText: UIColor
+        public var panelAccent: UIColor
+
+        public static let light = KeyStyle.make(from: .fallbackLight, themeStore: nil)
+        public static let dark = KeyStyle.make(from: .fallbackDark, themeStore: nil)
+    }
+
+    /// The keyboard's own background (§6.8.1's `background.type`), separate
+    /// from `keyboardBackground` (a plain solid color kept for surfaces —
+    /// the toolbar's own tint fallback, `BottomLiftView`, etc. — that don't
+    /// bother rendering a gradient/image/material of their own).
+    public enum KeyboardBackground: Sendable, Equatable {
+        case color(UIColor)
+        case gradient(colors: [UIColor], angleDegrees: Double)
+        /// Blur and dim are already baked into the file at save time
+        /// (§6.8.1) — the keyboard just displays it.
+        case image(url: URL)
+        case material(UIBlurEffect.Style)
     }
 #endif

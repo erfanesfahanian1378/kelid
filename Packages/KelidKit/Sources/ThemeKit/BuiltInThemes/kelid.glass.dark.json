@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.glass.dark",
+  "name": {
+    "en": "Glass",
+    "fa": "شیشه‌ای"
+  },
+  "isDark": true,
+  "background": {
+    "type": "material",
+    "style": "systemMaterialDark"
+  },
+  "keys": {
+    "normal": {
+      "fill": "#3A3A3C99",
+      "text": "#FFFFFF",
+      "pressedFill": "#5A5A5ECC"
+    },
+    "special": {
+      "fill": "#2C2C2E80",
+      "text": "#FFFFFF",
+      "pressedFill": "#48484ACC"
+    },
+    "accent": {
+      "fill": "#0A84FFCC",
+      "text": "#FFFFFF",
+      "pressedFill": "#409CFFCC"
+    },
+    "cornerRadius": 8.0,
+    "borderWidth": 0.0,
+    "borderColor": "#00000000",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.4,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#8E8E93"
+  },
+  "fonts": {
+    "weight": "medium",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#00000066",
+    "icon": "#FFFFFF",
+    "suggestionText": "#FFFFFF",
+    "divider": "#FFFFFF26",
+    "chipFill": "#3A3A3CCC"
+  },
+  "callout": {
+    "fill": "#48484ACC",
+    "text": "#FFFFFF"
+  },
+  "panel": {
+    "background": "#1C1C1E99",
+    "rowFill": "#3A3A3CCC",
+    "text": "#FFFFFF",
+    "secondaryText": "#EBEBF599",
+    "accent": "#0A84FF"
+  }
+}

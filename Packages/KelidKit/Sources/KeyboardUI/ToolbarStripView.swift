@@ -149,15 +149,20 @@
             suggestionStack.frame = CGRect(x: suggestionX, y: 0, width: max(0, bounds.width - Self.emojiSlotWidth), height: bounds.height)
         }
 
+        /// §6.8.1's `toolbar` block: `chipFill`/`divider` are modeled in
+        /// `KeyStyle` but have no existing chip-background/divider subview
+        /// to attach them to yet (the clip chip is a plain borderless
+        /// label) — `background`/`icon`/`suggestionText` are the fields
+        /// that actually have a real touchpoint here.
         func apply(style: KeyStyle) {
-            backgroundColor = isIncognitoActive ? Self.incognitoTint : style.keyboardBackground
-            label.textColor = style.labelColor
+            backgroundColor = isIncognitoActive ? Self.incognitoTint : style.toolbarBackground
+            label.textColor = style.toolbarSuggestionText
             for button in [clipboardButton, editButton, resizeButton, settingsButton] {
-                button.tintColor = style.labelColor
+                button.tintColor = style.toolbarIcon
             }
-            incognitoButton.tintColor = isIncognitoActive ? .white : style.labelColor
+            incognitoButton.tintColor = isIncognitoActive ? .white : style.toolbarIcon
             for button in suggestionButtons {
-                button.setTitleColor(style.labelColor, for: .normal)
+                button.setTitleColor(style.toolbarSuggestionText, for: .normal)
             }
         }
 

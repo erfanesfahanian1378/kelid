@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.light",
+  "name": {
+    "en": "Light",
+    "fa": "روشن"
+  },
+  "isDark": false,
+  "background": {
+    "type": "color",
+    "color": "#D1D3D9"
+  },
+  "keys": {
+    "normal": {
+      "fill": "#FFFFFF",
+      "text": "#000000",
+      "pressedFill": "#DCDCDC"
+    },
+    "special": {
+      "fill": "#ADADAD",
+      "text": "#000000",
+      "pressedFill": "#8E8E93"
+    },
+    "accent": {
+      "fill": "#007AFF",
+      "text": "#FFFFFF",
+      "pressedFill": "#409CFF"
+    },
+    "cornerRadius": 5.0,
+    "borderWidth": 0.0,
+    "borderColor": "#00000000",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.35,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#8E8E93"
+  },
+  "fonts": {
+    "weight": "regular",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#D1D3D9",
+    "icon": "#000000",
+    "suggestionText": "#000000",
+    "divider": "#C7C7CC",
+    "chipFill": "#FFFFFF"
+  },
+  "callout": {
+    "fill": "#FFFFFF",
+    "text": "#000000"
+  },
+  "panel": {
+    "background": "#F2F2F7",
+    "rowFill": "#FFFFFF",
+    "text": "#000000",
+    "secondaryText": "#8E8E93",
+    "accent": "#007AFF"
+  }
+}

@@ -4,6 +4,7 @@
     import KelidCore
     import KelidSettings
     import KeyboardLayout
+    import ThemeKit
     import UIKit
 
     /// Page/layout composition — `rebuild()`'s pipeline (field-requirement
@@ -38,6 +39,7 @@
             rootView.toolbarHeight = clampedMetrics.toolbarHeight
             rootView.toolbarVisible = toolbarVisible
             rootView.keyGridView.keyPopupsEnabled = settings.general.keyPopups
+            rootView.keyGridView.keyPressAnimation = settings.appearance.keyPressAnimation
             restyle()
 
             let height = HeightCoordinator.totalHeight(
@@ -82,10 +84,44 @@
         func restyle() {
             let style = currentStyle()
             rootView.apply(style: style)
+            // Task 11.1's "theme switches are instant" acceptance criterion
+            // needs the key grid's own per-key colors to refresh right away
+            // too, not just the root/toolbar background — `applyGeometry()`
+            // already re-applies `currentStyle()` to every `KeyView` as part
+            // of its normal frame recompute, so this reuses that path rather
+            // than adding a second, parallel "just recolor" one.
+            applyGeometry()
         }
 
-        private func currentStyle() -> KeyStyle {
-            KeyStyle.resolve(traitAppearance: systemAppearance, fieldAppearance: mapAppearance(state.traits.keyboardAppearance))
+        /// §6.8.3's resolution rules. `internal`, not `private` — `KeyboardController+Clipboard.swift`
+        /// (a separate file) needs it too, to build the `KelidTheme` SwiftUI
+        /// environment value (task 11.2) for the panels it presents.
+        public func resolveCurrentTheme() -> Theme {
+            let appearance = settings.appearance
+            let mode: ThemeResolutionMode = switch appearance.themeMode {
+            case .fixed: .fixed(themeID: appearance.fixedThemeID)
+            case .followSystem: .followSystem(lightThemeID: appearance.lightThemeID, darkThemeID: appearance.darkThemeID)
+            case .followApp: .followApp(lightThemeID: appearance.lightThemeID, darkThemeID: appearance.darkThemeID)
+            }
+            // §6.8.3: `.followSystem` looks only at the system trait;
+            // `.followApp` prefers the host field's own `keyboardAppearance`
+            // and only falls back to the system trait when the field hasn't
+            // set one (`mapAppearance` returns `nil` for `.default`).
+            let isDark: Bool = switch appearance.themeMode {
+            case .fixed: systemAppearance == .dark
+            case .followSystem: systemAppearance == .dark
+            case .followApp: (mapAppearance(state.traits.keyboardAppearance) ?? systemAppearance) == .dark
+            }
+            return ThemeResolver.resolve(mode: mode, isDark: isDark, builtIns: builtInThemeCatalog, customStore: themeStore)
+        }
+
+        /// §6.1.8's global font-family choice layered on top of the resolved
+        /// theme's own colors (`ThemeFonts`'s own doc comment explains why
+        /// that choice isn't part of theme resolution itself).
+        func currentStyle() -> KeyStyle {
+            let theme = resolveCurrentTheme()
+            return KeyStyle.make(from: theme, themeStore: themeStore)
+                .applyingFontChoice(persian: settings.appearance.persianFont, latin: settings.appearance.latinFont)
         }
 
         private func mapAppearance(_ trait: KeyboardAppearanceTrait) -> UIKeyboardAppearance? {

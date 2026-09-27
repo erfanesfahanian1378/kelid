@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.isfahan",
+  "name": {
+    "en": "Isfahan",
+    "fa": "اصفهان"
+  },
+  "isDark": true,
+  "background": {
+    "type": "gradient",
+    "colors": [
+      "#0F2A4A",
+      "#123F6B"
+    ],
+    "angle": 90.0
+  },
+  "keys": {
+    "normal": {
+      "fill": "#16497A",
+      "text": "#F2F6F8",
+      "pressedFill": "#1E5C99"
+    },
+    "special": {
+      "fill": "#0B3A63",
+      "text": "#D9E8F0",
+      "pressedFill": "#123F6B"
+    },
+    "accent": {
+      "fill": "#17A398",
+      "text": "#04211D",
+      "pressedFill": "#26C4B4"
+    },
+    "cornerRadius": 5.0,
+    "borderWidth": 0.0,
+    "borderColor": "#00000000",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.35,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#9FC1D6"
+  },
+  "fonts": {
+    "weight": "regular",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#0F2A4A",
+    "icon": "#E8F1F5",
+    "suggestionText": "#F2F6F8",
+    "divider": "#1E5C99",
+    "chipFill": "#16497A"
+  },
+  "callout": {
+    "fill": "#1E5C99",
+    "text": "#FFFFFF"
+  },
+  "panel": {
+    "background": "#0F2A4A",
+    "rowFill": "#16497A",
+    "text": "#F2F6F8",
+    "secondaryText": "#9FC1D6",
+    "accent": "#17A398"
+  }
+}

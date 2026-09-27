@@ -43,6 +43,23 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Kelid Theme</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.example.kelid.theme</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>kelidtheme</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 </dict>
 </plist>

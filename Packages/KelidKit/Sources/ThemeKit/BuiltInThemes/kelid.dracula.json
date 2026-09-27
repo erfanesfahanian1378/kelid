@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "kelid.dracula",
+  "name": {
+    "en": "Dracula",
+    "fa": "دراکولا"
+  },
+  "isDark": true,
+  "background": {
+    "type": "color",
+    "color": "#282A36"
+  },
+  "keys": {
+    "normal": {
+      "fill": "#44475A",
+      "text": "#F8F8F2",
+      "pressedFill": "#6272A4"
+    },
+    "special": {
+      "fill": "#282A36",
+      "text": "#F8F8F2",
+      "pressedFill": "#44475A"
+    },
+    "accent": {
+      "fill": "#BD93F9",
+      "text": "#282A36",
+      "pressedFill": "#FF79C6"
+    },
+    "cornerRadius": 5.0,
+    "borderWidth": 0.0,
+    "borderColor": "#00000000",
+    "shadow": {
+      "color": "#000000",
+      "opacity": 0.35,
+      "radius": 0.0,
+      "offsetY": 1.0
+    },
+    "hintText": "#B7B9D6"
+  },
+  "fonts": {
+    "weight": "regular",
+    "scale": 1.0
+  },
+  "toolbar": {
+    "background": "#282A36",
+    "icon": "#F8F8F2",
+    "suggestionText": "#F8F8F2",
+    "divider": "#44475A",
+    "chipFill": "#44475A"
+  },
+  "callout": {
+    "fill": "#44475A",
+    "text": "#F8F8F2"
+  },
+  "panel": {
+    "background": "#282A36",
+    "rowFill": "#44475A",
+    "text": "#F8F8F2",
+    "secondaryText": "#6272A4",
+    "accent": "#BD93F9"
+  }
+}
