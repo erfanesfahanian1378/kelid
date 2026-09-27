@@ -393,10 +393,19 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         services.lastSupplementaryLexiconFetchAt = Date()
-        requestSupplementaryLexicon { [weak self, weak controller] lexicon in
-            guard let self, let controller else { return }
-            let (replacements, names) = Self.parseSupplementaryLexicon(lexicon, learning: learning)
-            controller.applySupplementaryLexicon(textReplacements: replacements, contactNames: names)
+        // Real crash, found via on-device testing: `UIInputViewController`
+        // delivers this completion on its own private background queue
+        // (`com.apple.TextInput.lexicon-request`), never the main thread —
+        // touching `self`/`controller` (both main-actor-isolated) directly
+        // in this closure trapped at runtime (`swift_task_checkIsolatedSwift`)
+        // the moment a real fetch actually completed. Hopping to the main
+        // actor explicitly, instead of assuming it, is required here.
+        requestSupplementaryLexicon { [weak controller] lexicon in
+            guard let controller else { return }
+            Task { @MainActor in
+                let (replacements, names) = Self.parseSupplementaryLexicon(lexicon, learning: learning)
+                controller.applySupplementaryLexicon(textReplacements: replacements, contactNames: names)
+            }
         }
     }
 
