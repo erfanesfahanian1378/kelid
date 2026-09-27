@@ -75,18 +75,21 @@ struct ThemeGalleryView: View {
         customThemes = services.themeStore.listCustomThemes()
     }
 
+    /// Real bug, found via direct user feedback: this used to only set
+    /// `lightThemeID`/`darkThemeID` (whichever matched `theme.isDark`)
+    /// while leaving `themeMode` untouched — so tapping a theme while in
+    /// `.followApp`/`.followSystem` mode (the default) silently did
+    /// nothing *visible* unless the keyboard's current light/dark
+    /// context happened to match the slot that got updated. Tapping a
+    /// theme card now always switches to `.fixed` mode with that exact
+    /// theme, so the effect is immediate and unambiguous regardless of
+    /// system/host dark mode — the light/dark *pairing* is still
+    /// available, just from Settings → Appearance, for anyone who wants
+    /// automatic switching instead of a single fixed theme.
     private func setActive(_ theme: Theme) {
         services.settings.update { settings in
-            switch settings.appearance.themeMode {
-            case .fixed:
-                settings.appearance.fixedThemeID = theme.id
-            case .followSystem, .followApp:
-                if theme.isDark {
-                    settings.appearance.darkThemeID = theme.id
-                } else {
-                    settings.appearance.lightThemeID = theme.id
-                }
-            }
+            settings.appearance.themeMode = .fixed
+            settings.appearance.fixedThemeID = theme.id
         }
     }
 
