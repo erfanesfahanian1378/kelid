@@ -36,13 +36,15 @@ struct ThemeTests {
         #expect(theme.panel.accent == "#0A84FF")
     }
 
-    @Test("background variants (gradient/image/material) round-trip through encode/decode")
+    @Test("background variants (gradient/image/material/glass) round-trip through encode/decode")
     func backgroundVariantsRoundTrip() throws {
         let variants: [ThemeBackground] = [
             .color("#FFFFFF"),
             .gradient(colors: ["#FF0000", "#0000FF"], angle: 45),
             .image(file: "sunset.jpg", blur: 12, dim: 0.3),
             .material(style: "systemMaterialDark"),
+            .glass(tint: nil),
+            .glass(tint: "#007AFF80"),
         ]
         for background in variants {
             let theme = Theme.fallbackLight

@@ -8,32 +8,75 @@ import ThemeKit
 /// them — each section links to its own screen rather than one giant Form,
 /// since several groups (prediction, learning) are large and/or
 /// per-language.
+///
+/// Built from floating `GlassCard` groups over `GlassBackground`, matching
+/// `HomeView`'s look — direct follow-up to real user feedback that the rest
+/// of the app still looked like a plain, dated list next to Home's Liquid
+/// Glass redesign (a gap `HomeView.swift`'s own doc comment and decision 92
+/// already flagged as real and not yet closed). The ~10 detail screens this
+/// list links to (General, Prediction, Appearance, etc.) still use plain
+/// `Form`s — restyling every one of those was judged out of scope for this
+/// pass; this menu is the highest-visibility inconsistency, since it's the
+/// very next screen after Home.
 struct SettingsView: View {
     let services: AppServices
 
     var body: some View {
-        List {
-            Section {
-                NavigationLink("General") { GeneralSettingsView(services: services) }
-                NavigationLink("Size & Layout") { SizeLayoutView(settingsStore: services.settings) }
-                NavigationLink("Toolbar") { ToolbarSettingsView(services: services) }
-            }
-            Section {
-                NavigationLink("Prediction") { PredictionSettingsListView(services: services) }
-                NavigationLink("Learning") { LearningSettingsView(services: services) }
-            }
-            Section {
-                NavigationLink("Appearance") { AppearanceSettingsView(services: services) }
-                NavigationLink("Emoji") { EmojiSettingsView(services: services) }
-                NavigationLink("Snippets") { SnippetsSettingsView(services: services) }
-            }
-            Section {
-                NavigationLink("Shortcuts & Back Tap") { BackTapGuideView() }
-                NavigationLink("Advanced") { AdvancedSettingsView(services: services) }
-                NavigationLink("About") { AboutView() }
+        ZStack {
+            GlassBackground()
+            ScrollView {
+                VStack(spacing: 16) {
+                    settingsGroup {
+                        settingsRow("General") { GeneralSettingsView(services: services) }
+                        settingsRow("Size & Layout") { SizeLayoutView(settingsStore: services.settings) }
+                        settingsRow("Toolbar", isLast: true) { ToolbarSettingsView(services: services) }
+                    }
+                    settingsGroup {
+                        settingsRow("Prediction") { PredictionSettingsListView(services: services) }
+                        settingsRow("Learning", isLast: true) { LearningSettingsView(services: services) }
+                    }
+                    settingsGroup {
+                        settingsRow("Appearance") { AppearanceSettingsView(services: services) }
+                        settingsRow("Emoji") { EmojiSettingsView(services: services) }
+                        settingsRow("Snippets", isLast: true) { SnippetsSettingsView(services: services) }
+                    }
+                    settingsGroup {
+                        settingsRow("Shortcuts & Back Tap") { BackTapGuideView() }
+                        settingsRow("Advanced") { AdvancedSettingsView(services: services) }
+                        settingsRow("About", isLast: true) { AboutView() }
+                    }
+                }
+                .padding()
             }
         }
         .navigationTitle("Settings")
+        .toolbarBackground(.hidden, for: .navigationBar)
+    }
+
+    /// One floating card per §6.1 group.
+    private func settingsGroup(@ViewBuilder content: () -> some View) -> some View {
+        VStack(spacing: 0) { content() }
+            .glassCard(cornerRadius: 20)
+    }
+
+    /// One row inside a group — a plain `NavigationLink` outside a `List`
+    /// has no chevron/divider styling of its own, so this adds both by hand
+    /// to keep the "settings row" affordance List gave us for free.
+    private func settingsRow(_ title: String, isLast: Bool = false, @ViewBuilder destination: () -> some View) -> some View {
+        VStack(spacing: 0) {
+            NavigationLink(destination: destination) {
+                HStack {
+                    Text(title)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if !isLast {
+                Divider().padding(.leading, 4)
+            }
+        }
     }
 }
 

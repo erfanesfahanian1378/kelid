@@ -19,16 +19,25 @@
         /// Task 11.3's backgrounds — at most one of these three is
         /// non-`nil`/visible at a time, matching whichever `KeyboardBackground`
         /// case `apply(style:)` last saw; the plain `.color` case uses none
-        /// of them (`backgroundColor` alone is enough).
+        /// of them (`backgroundColor` alone is enough). `effectView` backs
+        /// both `.material` and `.glass` — they're both "one
+        /// `UIVisualEffectView` at index 0," just with a different
+        /// `UIVisualEffect` subclass installed.
         private var gradientLayer: CAGradientLayer?
         private var backgroundImageView: UIImageView?
-        private var blurView: UIVisualEffectView?
+        private var effectView: UIVisualEffectView?
         private var lastImageURL: URL?
-        /// `UIBlurEffect` doesn't expose the style it was created with as a
-        /// readable property, so this is tracked separately to avoid
-        /// rebuilding the (moderately expensive) blur view on every
-        /// `apply(style:)` call when the material hasn't actually changed.
-        private var lastBlurStyle: UIBlurEffect.Style?
+        /// Neither `UIBlurEffect` nor `UIGlassEffect` expose the values they
+        /// were created with as readable properties, so the *inputs* are
+        /// tracked separately to avoid rebuilding the (moderately expensive)
+        /// effect view on every `apply(style:)` call when nothing actually
+        /// changed.
+        private enum AppliedEffect: Equatable {
+            case blur(UIBlurEffect.Style)
+            case glass(tint: UIColor?)
+        }
+
+        private var lastAppliedEffect: AppliedEffect?
 
         override public init(frame: CGRect) {
             super.init(frame: frame)
@@ -49,7 +58,7 @@
             keyGridView.frame = CGRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
             gradientLayer?.frame = bounds
             backgroundImageView?.frame = bounds
-            blurView?.frame = bounds
+            effectView?.frame = bounds
         }
 
         func apply(style: KeyStyle) {
@@ -97,39 +106,65 @@
                 }
             case let .material(blurStyle):
                 clearGradientAndImage()
-                if blurView != nil, lastBlurStyle == blurStyle {
-                    return
-                }
-                blurView?.removeFromSuperview()
-                let newBlurView = UIVisualEffectView(effect: UIBlurEffect(style: blurStyle))
-                newBlurView.frame = bounds
-                insertSubview(newBlurView, at: 0)
-                blurView = newBlurView
-                lastBlurStyle = blurStyle
+                applyEffect(.blur(blurStyle)) { UIVisualEffectView(effect: UIBlurEffect(style: blurStyle)) }
+            case let .glass(tint):
+                clearGradientAndImage()
+                applyEffect(.glass(tint: tint)) { Self.makeGlassEffectView(tint: tint) }
             }
+        }
+
+        /// Shared install/skip-if-unchanged logic for `.material`/`.glass` —
+        /// both just swap in a differently-configured `UIVisualEffectView`
+        /// at index 0, so the actual view-management code is identical; only
+        /// which `UIVisualEffect` gets built differs.
+        private func applyEffect(_ desired: AppliedEffect, makeView: () -> UIVisualEffectView) {
+            if effectView != nil, lastAppliedEffect == desired {
+                return
+            }
+            effectView?.removeFromSuperview()
+            let newEffectView = makeView()
+            newEffectView.frame = bounds
+            insertSubview(newEffectView, at: 0)
+            effectView = newEffectView
+            lastAppliedEffect = desired
+        }
+
+        /// Real Liquid Glass (`UIGlassEffect`) on iOS 26+; `UIGlassEffect`
+        /// doesn't exist on earlier OS versions the app still supports
+        /// (`project.yml`'s `deploymentTarget` is iOS 17), so this falls
+        /// back to the same plain system-material blur `.material` themes
+        /// use — a real, if less dynamic, translucent look rather than a
+        /// crash or a silently-missing background.
+        private static func makeGlassEffectView(tint: UIColor?) -> UIVisualEffectView {
+            if #available(iOS 26.0, *) {
+                let glass = UIGlassEffect()
+                glass.tintColor = tint
+                return UIVisualEffectView(effect: glass)
+            }
+            return UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
         }
 
         private func clearGradientAndImageAndMaterial() {
             clearGradientAndImage()
-            blurView?.removeFromSuperview()
-            blurView = nil
-            lastBlurStyle = nil
+            effectView?.removeFromSuperview()
+            effectView = nil
+            lastAppliedEffect = nil
         }
 
         private func clearGradientAndMaterial() {
             gradientLayer?.removeFromSuperlayer()
             gradientLayer = nil
-            blurView?.removeFromSuperview()
-            blurView = nil
-            lastBlurStyle = nil
+            effectView?.removeFromSuperview()
+            effectView = nil
+            lastAppliedEffect = nil
         }
 
         private func clearImageAndMaterial() {
             backgroundImageView?.removeFromSuperview()
             backgroundImageView = nil
             lastImageURL = nil
-            blurView?.removeFromSuperview()
-            blurView = nil
+            effectView?.removeFromSuperview()
+            effectView = nil
         }
 
         private func clearGradientAndImage() {

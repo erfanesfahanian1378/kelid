@@ -22,7 +22,7 @@ struct ThemeEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     private enum BackgroundKind: String, CaseIterable {
-        case color, gradient, image, material
+        case color, gradient, image, material, glass
     }
 
     init(services: AppServices, theme: Theme) {
@@ -33,6 +33,7 @@ struct ThemeEditorView: View {
         case .gradient: _backgroundKind = State(initialValue: .gradient)
         case .image: _backgroundKind = State(initialValue: .image)
         case .material: _backgroundKind = State(initialValue: .material)
+        case .glass: _backgroundKind = State(initialValue: .glass)
         }
         if case let .image(_, initialBlur, initialDim) = theme.background {
             _blur = State(initialValue: initialBlur)
@@ -101,6 +102,7 @@ struct ThemeEditorView: View {
                 Text("Gradient").tag(BackgroundKind.gradient)
                 Text("Photo").tag(BackgroundKind.image)
                 Text("Material").tag(BackgroundKind.material)
+                Text("Glass").tag(BackgroundKind.glass)
             }
             .onChange(of: backgroundKind) { _, newKind in updateBackgroundKind(newKind) }
 
@@ -149,6 +151,21 @@ struct ThemeEditorView: View {
                         selection: Binding(get: { style }, set: { theme.background = .material(style: $0) })
                     ) {
                         ForEach(Self.materialStyleNames, id: \.self) { Text($0).tag($0) }
+                    }
+                }
+            case .glass:
+                if case let .glass(tint) = theme.background {
+                    Text("Real Liquid Glass (iOS 26+) — falls back to a plain system material on older versions.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Toggle(
+                        "Tinted",
+                        isOn: Binding(
+                            get: { tint != nil },
+                            set: { isOn in theme.background = .glass(tint: isOn ? (tint ?? "#007AFF80") : nil) }
+                        )
+                    )
+                    if let tint {
+                        ColorPicker("Tint", selection: colorBinding(get: { tint }, set: { theme.background = .glass(tint: $0) }))
                     }
                 }
             }
@@ -252,6 +269,8 @@ struct ThemeEditorView: View {
             break // set once a photo is actually picked
         case .material:
             theme.background = .material(style: theme.isDark ? "systemMaterialDark" : "systemMaterialLight")
+        case .glass:
+            theme.background = .glass(tint: nil)
         }
     }
 

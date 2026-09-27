@@ -65,5 +65,9 @@
         /// (§6.8.1) — the keyboard just displays it.
         case image(url: URL)
         case material(UIBlurEffect.Style)
+        /// Real Liquid Glass (iOS 26+, `UIGlassEffect`) — `KeyboardRootView`
+        /// falls back to `.material(.systemMaterial)`'s rendering on older
+        /// OS versions, since `UIGlassEffect` itself doesn't exist there.
+        case glass(tint: UIColor?)
     }
 #endif

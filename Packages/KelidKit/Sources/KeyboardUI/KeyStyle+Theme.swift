@@ -35,6 +35,8 @@
                 themeStore.map { .image(url: $0.imageURL(filename: file)) } ?? .color(theme.isDark ? .black : .white)
             case let .material(style):
                 .material(UIBlurEffect.Style(themeName: style))
+            case let .glass(tint):
+                .glass(tint: tint.flatMap { UIColor(themeHex: $0) })
             }
 
             let baseBackgroundColor: UIColor = if case let .color(hex) = theme.background {

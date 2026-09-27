@@ -7,8 +7,7 @@
   },
   "isDark": true,
   "background": {
-    "type": "material",
-    "style": "systemMaterialDark"
+    "type": "glass"
   },
   "keys": {
     "normal": {

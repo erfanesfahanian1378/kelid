@@ -99,9 +99,16 @@ public enum ThemeBackground: Codable, Sendable, Equatable {
     /// `style` is a `UIBlurEffect.Style` case name (e.g. `"systemMaterial"`),
     /// kept as a plain string since `UIBlurEffect.Style` lives in UIKit.
     case material(style: String)
+    /// The real Liquid Glass material (iOS 26+, `UIGlassEffect`/`glassEffect`)
+    /// — an optional `#RRGGBB(AA)` tint, `nil` for the neutral/untinted look
+    /// most themes want. Falls back to `.material(style: "systemMaterial")`'s
+    /// rendering on iOS versions before 26 (`KeyStyle+Theme.swift`/
+    /// `KeyboardRootView` decide that at the UIKit layer — this module stays
+    /// UIKit-free per CLAUDE.md).
+    case glass(tint: String?)
 
     private enum CodingKeys: String, CodingKey {
-        case type, color, colors, angle, file, blur, dim, style
+        case type, color, colors, angle, file, blur, dim, style, tint
     }
 
     public init(from decoder: Decoder) throws {
@@ -119,6 +126,8 @@ public enum ThemeBackground: Codable, Sendable, Equatable {
             )
         case "material":
             self = try .material(style: c.decode(String.self, forKey: .style))
+        case "glass":
+            self = try .glass(tint: c.decodeIfPresent(String.self, forKey: .tint))
         default:
             self = try .color(c.decode(String.self, forKey: .color))
         }
@@ -142,6 +151,9 @@ public enum ThemeBackground: Codable, Sendable, Equatable {
         case let .material(style):
             try c.encode("material", forKey: .type)
             try c.encode(style, forKey: .style)
+        case let .glass(tint):
+            try c.encode("glass", forKey: .type)
+            try c.encodeIfPresent(tint, forKey: .tint)
         }
     }
 }

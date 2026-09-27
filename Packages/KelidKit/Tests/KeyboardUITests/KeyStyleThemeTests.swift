@@ -67,6 +67,36 @@
             #expect(angle == 45)
         }
 
+        @Test("a glass background converts to the right KeyboardBackground case, with and without a tint")
+        func glassBackgroundConverts() {
+            var theme = Theme.fallbackLight
+            theme.background = .glass(tint: nil)
+            guard case let .glass(untinted) = KeyStyle.make(from: theme, themeStore: nil).background else {
+                Issue.record("expected a .glass background")
+                return
+            }
+            #expect(untinted == nil)
+
+            theme.background = .glass(tint: "#007AFF80")
+            guard case let .glass(tinted) = KeyStyle.make(from: theme, themeStore: nil).background else {
+                Issue.record("expected a .glass background")
+                return
+            }
+            #expect(tinted == UIColor(themeHex: "#007AFF80"))
+        }
+
+        @Test("both built-in Glass themes use a real .glass background")
+        func builtInGlassThemesUseGlassBackground() throws {
+            let catalog = BuiltInThemeCatalog()
+            for id in ["kelid.glass.light", "kelid.glass.dark"] {
+                let theme = try #require(catalog.theme(id: id))
+                guard case .glass = KeyStyle.make(from: theme, themeStore: nil).background else {
+                    Issue.record("\(id) should use a .glass background")
+                    return
+                }
+            }
+        }
+
         @Test("applyingFontChoice sets the Vazirmatn font name only when persian == .vazirmatn")
         func fontChoiceApplication() {
             let base = KeyStyle.make(from: .fallbackDark, themeStore: nil)
