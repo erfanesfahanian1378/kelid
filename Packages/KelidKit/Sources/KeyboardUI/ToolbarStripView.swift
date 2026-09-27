@@ -288,7 +288,14 @@
         }
 
         private func setIconButtons(hidden: Bool) {
-            for button in [clipboardButton, editButton, resizeButton, settingsButton, incognitoButton] {
+            // Real bug: `copyNowButton` was added to the toolbar after this
+            // method already existed and was missed here — it stayed
+            // visible (and at its fixed rightmost frame) even when
+            // suggestions were showing, sitting directly on top of part of
+            // the suggestion stack (which spans the toolbar's full width
+            // whenever there's no emoji slot) instead of being hidden along
+            // with the other icons.
+            for button in [copyNowButton, clipboardButton, editButton, resizeButton, settingsButton, incognitoButton] {
                 button.isHidden = hidden
             }
         }
